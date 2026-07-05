@@ -1,0 +1,27 @@
+{
+  "name": "continue-telegram-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Telegram bot that bridges a Telegram chat to the Continue VS Code extension's Chat Streaming API.",
+  "license": "Apache-2.0",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "node-telegram-bot-api": "^0.66.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/node-telegram-bot-api": "^0.64.7",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}
