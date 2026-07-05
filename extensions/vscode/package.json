@@ -147,10 +147,30 @@
           "type": "number",
           "default": 60,
           "description": "The period of time in minutes between automatic syncs."
+        },
+        "continue.chatApi.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Expose the current chat session over a local HTTP/SSE/WebSocket API so external clients (an iOS app, a Telegram bot, etc.) can stream and send messages. See [continue.dev › Guides › Chat Streaming API](https://docs.continue.dev/guides/chat-streaming-api). Requires the token shown by the `Continue: Show Chat API Token` command."
+        },
+        "continue.chatApi.port": {
+          "type": "number",
+          "default": 65432,
+          "description": "Port the Continue Chat API server listens on."
+        },
+        "continue.chatApi.host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Host/interface the Continue Chat API server binds to. Only change this from 127.0.0.1 if you understand the security implications of exposing your chat on the network - always keep the token secret."
         }
       }
     },
     "commands": [
+      {
+        "command": "continue.chatApi.showToken",
+        "title": "Continue: Show Chat API Token",
+        "category": "Continue"
+      },
       {
         "command": "continue.applyCodeFromChat",
         "category": "Continue",

@@ -1,0 +1,159 @@
+---
+title: "Chat Streaming API: Connect an iOS App or Telegram Bot to Continue"
+description: "Stream your live Continue chat session out of VS Code over a local HTTP/SSE/WebSocket API, and send messages into it from an external client such as a mobile app or a Telegram bot."
+---
+
+## What This Is
+
+The Continue VS Code extension can expose the chat session running in its sidebar over a small local API. External clients can:
+
+- Watch the conversation live, token-by-token, as the assistant responds (Server-Sent Events or WebSocket)
+- Read a snapshot of the current session's history
+- Send a new message into the chat, exactly as if it were typed into the sidebar
+
+This is what powers the reference [iOS app](https://github.com/continuedev/continue/tree/main/apps/ios/ContinueChat) and [Telegram bot](https://github.com/continuedev/continue/tree/main/integrations/telegram-bot) in this repo, but the API itself is plain HTTP/SSE/WebSocket, so you can build your own client against it.
+
+<Warning>
+  This exposes the content of your chat (including code context) to anything
+  that holds the API token. Keep the server bound to `127.0.0.1` unless you
+  understand the risk of exposing it further, and never share the token.
+</Warning>
+
+## How It Works
+
+The server doesn't reimplement chat logic - it mirrors exactly what the Continue sidebar already sends and receives internally:
+
+- When you (or an external client) send a message, it goes through the same `userInput` mechanism Continue already uses for things like "Ask Continue about this terminal error." It shows up in the real sidebar, gets sent to your configured model, and gets saved to session history like any other message.
+- Every chunk of the assistant's streamed reply is mirrored out to connected clients the moment it's sent to the sidebar webview.
+
+There is one architectural consequence worth knowing: a message you type **directly in the VS Code sidebar** is only visible to the API once the *next* chat turn starts (Continue's webview holds the freshly-typed user turn locally until it issues the underlying chat request), whereas messages sent via `POST /message` or over the WebSocket appear immediately as a `user_message` event, and the response streams back over the same connection.
+
+## Enabling the Server
+
+1. Open VS Code settings and set:
+   - `continue.chatApi.enabled`: `true`
+   - `continue.chatApi.port` (optional, default `65432`)
+   - `continue.chatApi.host` (optional, default `127.0.0.1`)
+2. Reload the window (or toggle the setting off/on). Continue shows a notification with the server URL and a **Copy Token** button.
+3. To retrieve the token again later, run **Continue: Show Chat API Token** from the Command Palette.
+
+The token is generated once per VS Code installation and stored in VS Code's encrypted `SecretStorage` - it is not written to your settings file.
+
+## Authentication
+
+Every request (except `GET /health`) must include the token, either as a bearer header or a query parameter:
+
+```bash
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:65432/session
+# or
+curl "http://127.0.0.1:65432/session?token=<token>"
+```
+
+WebSocket clients pass it as a query parameter when opening the connection: `ws://127.0.0.1:65432/ws?token=<token>`.
+
+## REST Endpoints
+
+### `GET /health`
+
+No auth required. Returns `{ "ok": true }` if the server is up.
+
+### `GET /session`
+
+Returns a snapshot of the currently active session in the sidebar.
+
+```json
+{
+  "sessionId": "1f9e2b3a-...",
+  "session": {
+    "sessionId": "1f9e2b3a-...",
+    "title": "Fix the flaky test",
+    "history": [
+      { "message": { "role": "user", "content": "..." }, "contextItems": [] },
+      { "message": { "role": "assistant", "content": "..." }, "contextItems": [] }
+    ]
+  }
+}
+```
+
+If no chat has been started yet in this VS Code window, `sessionId` and `session` are both `undefined`.
+
+### `POST /message`
+
+Sends a message into the chat, as if typed into the sidebar input box.
+
+```bash
+curl -X POST http://127.0.0.1:65432/message \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"input": "What does this repo do?"}'
+```
+
+Returns `{ "ok": true }` immediately - it does not wait for the assistant's reply. Subscribe to `/events` or `/ws` to see the response stream in.
+
+## Streaming: `GET /events` (Server-Sent Events)
+
+Opens a long-lived `text/event-stream` connection. Every event is a JSON-encoded `data:` line:
+
+```
+data: {"type":"user_message","turnId":"a1b2...","timestamp":1750000000000,"data":{"role":"user","content":"What does this repo do?"}}
+
+data: {"type":"assistant_delta","turnId":"a1b2...","timestamp":1750000000010,"data":{"content":[{"role":"assistant","content":"This "}],"status":"success"}}
+
+data: {"type":"assistant_delta","turnId":"a1b2...","timestamp":1750000000020,"data":{"content":[{"role":"assistant","content":"repo is..."}],"status":"success"}}
+
+data: {"type":"assistant_done","turnId":"a1b2...","timestamp":1750000001000,"data":{"content":[{"role":"assistant","content":"This repo is..."}],"status":"success"}}
+```
+
+### Event Types
+
+| `type` | Meaning |
+| --- | --- |
+| `user_message` | A new user turn was sent (from any client, including the sidebar itself). `data` is the `ChatMessage`. |
+| `assistant_delta` | An incremental chunk of the assistant's reply. `data.content` is the latest chunk (a `ChatMessage` or array of them, matching Continue's internal streaming format). |
+| `assistant_done` | The turn finished. `data.status` is `"success"` or `"error"`. |
+| `session` | Session metadata changed (e.g. title, new session created). |
+
+`turnId` is stable across all events belonging to the same chat turn - use it to group deltas into a single message on the client side.
+
+### JavaScript example
+
+```js
+const es = new EventSource("http://127.0.0.1:65432/events?token=" + token);
+const buffers = new Map();
+
+es.onmessage = (e) => {
+  const event = JSON.parse(e.data);
+  if (event.type === "assistant_delta" || event.type === "assistant_done") {
+    const chunks = [].concat(event.data.content ?? []);
+    const text = chunks.map((c) => c.content).join("");
+    buffers.set(event.turnId, (buffers.get(event.turnId) ?? "") + text);
+    render(event.turnId, buffers.get(event.turnId));
+  }
+};
+```
+
+## Streaming: `GET /ws` (WebSocket)
+
+Same events as SSE, pushed as WebSocket text frames. Additionally accepts inbound messages to send chat input without a separate HTTP request:
+
+```json
+{ "type": "message", "input": "What does this repo do?" }
+```
+
+```js
+const ws = new WebSocket(`ws://127.0.0.1:65432/ws?token=${token}`);
+ws.onmessage = (e) => console.log(JSON.parse(e.data));
+ws.onopen = () => ws.send(JSON.stringify({ type: "message", input: "Hello" }));
+```
+
+## Reference Clients
+
+- **iOS app** (`apps/ios/ContinueChat`): a minimal SwiftUI app that connects over SSE and mirrors Continue's dark/blue theme. Open the Xcode project, set the server URL and token in the app's settings screen, and run it in Simulator or on a device on the same network as your machine.
+- **Telegram bot** (`integrations/telegram-bot`): a Node.js bot that relays messages between a Telegram chat and the Chat API - forwarding your Telegram messages into Continue and streaming the assistant's replies back as edited Telegram messages. See its README for setup with `BotFather`.
+
+## Troubleshooting
+
+- **`ECONNREFUSED`**: the server isn't enabled, or VS Code hasn't finished activating the extension yet. Check `continue.chatApi.enabled` and the **Continue Chat API** output channel (View → Output).
+- **`401 Invalid or missing API token`**: re-run **Continue: Show Chat API Token** and make sure you're using the latest value - it's regenerated if VS Code's secret storage is cleared.
+- **No `user_message` event for something you typed in the sidebar**: expected - the sidebar only reveals a turn to the API once it sends the underlying chat request. Use `POST /message` for anything that should show up immediately.
+- **Connecting from a physical iOS device or a separate machine (e.g. for the Telegram bot)**: set `continue.chatApi.host` to `0.0.0.0` and reach your machine's LAN IP, or use a tool like an SSH tunnel/Tailscale rather than exposing the port publicly.

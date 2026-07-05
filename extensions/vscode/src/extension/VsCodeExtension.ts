@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
@@ -35,6 +36,8 @@ import { Battery } from "../util/battery";
 import { FileSearch } from "../util/FileSearch";
 import { VsCodeIdeUtils } from "../util/ideUtils";
 import { VsCodeIde } from "../VsCodeIde";
+
+import { ChatApiServer } from "../apiServer/ChatApiServer";
 
 import { ConfigYamlDocumentLinkProvider } from "./ConfigYamlDocumentLinkProvider";
 import { VsCodeMessenger } from "./VsCodeMessenger";
@@ -78,6 +81,7 @@ export class VsCodeExtension {
   private fileSearch: FileSearch;
   private uriHandler = new UriEventHandler();
   private completionProvider: ContinueCompletionProvider;
+  private chatApiServer?: ChatApiServer;
 
   private ARBITRARY_TYPING_DELAY = 2000;
 
@@ -281,6 +285,28 @@ export class VsCodeExtension {
     this.core = new Core(inProcessMessenger, this.ide);
     this.configHandler = this.core.configHandler;
     resolveConfigHandler?.(this.configHandler);
+
+    this.chatApiServer = new ChatApiServer(
+      this.sidebar.webviewProtocol,
+      inProcessMessenger,
+    );
+    context.subscriptions.push({
+      dispose: () => this.chatApiServer?.dispose(),
+    });
+    void this.setupChatApiServer(context);
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration(`${EXTENSION_NAME}.chatApi`)) {
+          void this.setupChatApiServer(context);
+        }
+      }),
+    );
+    context.subscriptions.push(
+      vscode.commands.registerCommand(
+        "continue.chatApi.showToken",
+        async () => await this.showChatApiToken(context),
+      ),
+    );
 
     void this.configHandler.loadConfig();
 
@@ -645,5 +671,60 @@ export class VsCodeExtension {
 
   public deactivateNextEdit() {
     this.completionProvider.deactivateNextEdit();
+  }
+
+  private async getOrCreateChatApiToken(
+    context: vscode.ExtensionContext,
+  ): Promise<string> {
+    const secretKey = "continue.chatApi.token";
+    let token = await context.secrets.get(secretKey);
+    if (!token) {
+      token = crypto.randomBytes(24).toString("hex");
+      await context.secrets.store(secretKey, token);
+    }
+    return token;
+  }
+
+  private async showChatApiToken(context: vscode.ExtensionContext) {
+    const token = await this.getOrCreateChatApiToken(context);
+    const action = await vscode.window.showInformationMessage(
+      `Continue Chat API token: ${token}`,
+      "Copy Token",
+    );
+    if (action === "Copy Token") {
+      await vscode.env.clipboard.writeText(token);
+    }
+  }
+
+  private async setupChatApiServer(context: vscode.ExtensionContext) {
+    if (!this.chatApiServer) {
+      return;
+    }
+    const config = vscode.workspace.getConfiguration(EXTENSION_NAME);
+    const enabled = config.get<boolean>("chatApi.enabled", false);
+
+    if (!enabled) {
+      await this.chatApiServer.stop();
+      return;
+    }
+
+    const port = config.get<number>("chatApi.port", 65432);
+    const host = config.get<string>("chatApi.host", "127.0.0.1");
+    const token = await this.getOrCreateChatApiToken(context);
+
+    try {
+      await this.chatApiServer.start(port, host, token);
+      const action = await vscode.window.showInformationMessage(
+        `Continue Chat API is running at http://${host}:${port}`,
+        "Copy Token",
+      );
+      if (action === "Copy Token") {
+        await vscode.env.clipboard.writeText(token);
+      }
+    } catch (e: any) {
+      void vscode.window.showErrorMessage(
+        `Failed to start Continue Chat API server on ${host}:${port}: ${e?.message ?? e}`,
+      );
+    }
   }
 }

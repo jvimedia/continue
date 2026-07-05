@@ -15,8 +15,29 @@ export class VsCodeWebviewProtocol
     ((message: Message) => any)[]
   >();
 
+  /**
+   * Optional hook invoked for every message pushed to the webview, before it
+   * is posted. Used by the chat API server to mirror chat traffic (e.g.
+   * `llm/streamChat` deltas) to external clients without affecting delivery
+   * to the real webview.
+   */
+  onDidSendMessage?: (
+    messageType: string,
+    data: any,
+    messageId: string,
+  ) => void;
+
+  /**
+   * Optional hook invoked for every message received from the webview,
+   * before it is dispatched to handlers. Used by the chat API server to
+   * observe outgoing chat requests (e.g. the full message list sent with
+   * `llm/streamChat`) without interfering with the real handler chain.
+   */
+  onDidReceiveWebviewMessage?: (message: Message) => void;
+
   send(messageType: string, data: any, messageId?: string): string {
     const id = messageId ?? uuidv4();
+    this.onDidSendMessage?.(messageType, data, id);
     this.webview?.postMessage({
       messageType,
       data,
@@ -55,6 +76,8 @@ export class VsCodeWebviewProtocol
 
       const respond = (message: any) =>
         this.send(msg.messageType, message, msg.messageId);
+
+      this.onDidReceiveWebviewMessage?.(msg);
 
       const handlers =
         this.listeners.get(msg.messageType as keyof FromWebviewProtocol) || [];
