@@ -267,12 +267,37 @@ export class ChatApiServer {
     messageId: string,
   ) {
     if (messageType === "llm/streamChat") {
-      const { done, content, status } = data ?? {};
+      const { done, content, status, error } = data ?? {};
+      if (!done) {
+        // Each non-final response carries one streamed ChatMessage chunk.
+        this.broadcast({
+          type: "assistant_delta",
+          turnId: messageId,
+          timestamp: Date.now(),
+          data: { content, status },
+        });
+        return;
+      }
+      // The final response's `content` is the underlying async generator's
+      // *return* value - a PromptLog (`{ modelTitle, prompt, completion }`),
+      // not a ChatMessage like every delta before it. Normalize it into the
+      // same `{ role, content }` shape so clients can treat `data.content`
+      // consistently across delta/done events, while still passing the raw
+      // PromptLog through as `promptLog` for anyone who wants the metadata.
+      const promptLog = content as { completion?: string } | undefined;
       this.broadcast({
-        type: done ? "assistant_done" : "assistant_delta",
+        type: "assistant_done",
         turnId: messageId,
         timestamp: Date.now(),
-        data: { content, status },
+        data: {
+          content:
+            typeof promptLog?.completion === "string"
+              ? { role: "assistant", content: promptLog.completion }
+              : undefined,
+          promptLog: content,
+          status,
+          error,
+        },
       });
     } else if (messageType === "sessionUpdate") {
       this.broadcast({

@@ -101,7 +101,7 @@ data: {"type":"assistant_delta","turnId":"a1b2...","timestamp":1750000000010,"da
 
 data: {"type":"assistant_delta","turnId":"a1b2...","timestamp":1750000000020,"data":{"content":[{"role":"assistant","content":"repo is..."}],"status":"success"}}
 
-data: {"type":"assistant_done","turnId":"a1b2...","timestamp":1750000001000,"data":{"content":[{"role":"assistant","content":"This repo is..."}],"status":"success"}}
+data: {"type":"assistant_done","turnId":"a1b2...","timestamp":1750000001000,"data":{"content":{"role":"assistant","content":"This repo is..."},"promptLog":{"modelTitle":"...","modelProvider":"...","prompt":"...","completion":"This repo is..."},"status":"success"}}
 ```
 
 ### Event Types
@@ -110,10 +110,10 @@ data: {"type":"assistant_done","turnId":"a1b2...","timestamp":1750000001000,"dat
 | --- | --- |
 | `user_message` | A new user turn was sent (from any client, including the sidebar itself). `data` is the `ChatMessage`. |
 | `assistant_delta` | An incremental chunk of the assistant's reply. `data.content` is the latest chunk (a `ChatMessage` or array of them, matching Continue's internal streaming format). |
-| `assistant_done` | The turn finished. `data.status` is `"success"` or `"error"`. |
+| `assistant_done` | The turn finished. `data.content` is a single `{ role: "assistant", content: string }` message holding the *full* reply text (not a delta) - it's derived from the underlying completion, not accumulated from the deltas you already received. `data.promptLog` additionally exposes the raw `{ modelTitle, modelProvider, prompt, completion }` metadata. `data.status` is `"success"` or `"error"` (`data.error` holds the message on error, and `data.content` may be absent). |
 | `session` | Session metadata changed (e.g. title, new session created). |
 
-`turnId` is stable across all events belonging to the same chat turn - use it to group deltas into a single message on the client side.
+`turnId` is stable across all events belonging to the same chat turn - use it to group deltas into a single message on the client side. Because `assistant_done.data.content` already contains the complete text, the simplest correct client just replaces its accumulated buffer with it on `assistant_done` rather than appending.
 
 ### JavaScript example
 
@@ -123,10 +123,14 @@ const buffers = new Map();
 
 es.onmessage = (e) => {
   const event = JSON.parse(e.data);
-  if (event.type === "assistant_delta" || event.type === "assistant_done") {
+  if (event.type === "assistant_delta") {
     const chunks = [].concat(event.data.content ?? []);
     const text = chunks.map((c) => c.content).join("");
     buffers.set(event.turnId, (buffers.get(event.turnId) ?? "") + text);
+    render(event.turnId, buffers.get(event.turnId));
+  } else if (event.type === "assistant_done") {
+    // data.content is the full reply - it replaces, not appends to, the buffer.
+    buffers.set(event.turnId, event.data.content?.content ?? buffers.get(event.turnId));
     render(event.turnId, buffers.get(event.turnId));
   }
 };
