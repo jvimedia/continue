@@ -48,29 +48,29 @@ const statusBarItemText = (
   error?: boolean,
 ) => {
   if (error) {
-    return "$(alert) Continue (config error)";
+    return "$(alert) Continue JV (config error)";
   }
 
   let text: string;
   switch (status) {
     case undefined:
       if (loading) {
-        text = "$(loading~spin) Continue";
+        text = "$(loading~spin) Continue JV";
       } else {
-        text = "Continue";
+        text = "Continue JV";
       }
       break;
     case StatusBarStatus.Disabled:
-      text = "$(circle-slash) Continue";
+      text = "$(circle-slash) Continue JV";
       break;
     case StatusBarStatus.Enabled:
-      text = "$(check) Continue";
+      text = "$(check) Continue JV";
       break;
     case StatusBarStatus.Paused:
-      text = "$(debug-pause) Continue";
+      text = "$(debug-pause) Continue JV";
       break;
     default:
-      text = "Continue";
+      text = "Continue JV";
   }
 
   // Append Next Edit indicator if enabled.
@@ -147,7 +147,7 @@ export function setupStatusBar(
 
   statusBarItem.text = statusBarItemText(status, loading, statusBarError);
   statusBarItem.tooltip = statusBarItemTooltip(status ?? statusBarStatus);
-  statusBarItem.command = "continue.openTabAutocompleteConfigMenu";
+  statusBarItem.command = "continueJv.openTabAutocompleteConfigMenu";
 
   statusBarItem.show();
   if (status !== undefined) {

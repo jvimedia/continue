@@ -140,7 +140,7 @@ export class VsCodeExtension {
             );
           } else if (selection === "Select different model") {
             vscode.commands.executeCommand(
-              "continue.openTabAutocompleteConfigMenu",
+              "continueJv.openTabAutocompleteConfigMenu",
             );
           }
         });
@@ -257,7 +257,7 @@ export class VsCodeExtension {
     // Sidebar
     context.subscriptions.push(
       vscode.window.registerWebviewViewProvider(
-        "continue.continueGUIView",
+        "continueJv.continueGUIView",
         this.sidebar,
         {
           webviewOptions: { retainContextWhenHidden: true },
@@ -303,7 +303,7 @@ export class VsCodeExtension {
     );
     context.subscriptions.push(
       vscode.commands.registerCommand(
-        "continue.chatApi.showToken",
+        "continueJv.chatApi.showToken",
         async () => await this.showChatApiToken(context),
       ),
     );
@@ -419,7 +419,7 @@ export class VsCodeExtension {
 
     context.subscriptions.push(
       vscode.window.registerWebviewViewProvider(
-        "continue.continueConsoleView",
+        "continueJv.continueConsoleView",
         this.consoleView,
       ),
     );
@@ -676,7 +676,7 @@ export class VsCodeExtension {
   private async getOrCreateChatApiToken(
     context: vscode.ExtensionContext,
   ): Promise<string> {
-    const secretKey = "continue.chatApi.token";
+    const secretKey = "continue-jv.chatApi.token";
     let token = await context.secrets.get(secretKey);
     if (!token) {
       token = crypto.randomBytes(24).toString("hex");
@@ -688,7 +688,7 @@ export class VsCodeExtension {
   private async showChatApiToken(context: vscode.ExtensionContext) {
     const token = await this.getOrCreateChatApiToken(context);
     const action = await vscode.window.showInformationMessage(
-      `Continue Chat API token: ${token}`,
+      `Continue JV Chat API token: ${token}`,
       "Copy Token",
     );
     if (action === "Copy Token") {
@@ -708,14 +708,14 @@ export class VsCodeExtension {
       return;
     }
 
-    const port = config.get<number>("chatApi.port", 65432);
+    const port = config.get<number>("chatApi.port", 65433);
     const host = config.get<string>("chatApi.host", "127.0.0.1");
     const token = await this.getOrCreateChatApiToken(context);
 
     try {
       await this.chatApiServer.start(port, host, token);
       const action = await vscode.window.showInformationMessage(
-        `Continue Chat API is running at http://${host}:${port}`,
+        `Continue JV Chat API is running at http://${host}:${port}`,
         "Copy Token",
       );
       if (action === "Copy Token") {
@@ -723,7 +723,7 @@ export class VsCodeExtension {
       }
     } catch (e: any) {
       void vscode.window.showErrorMessage(
-        `Failed to start Continue Chat API server on ${host}:${port}: ${e?.message ?? e}`,
+        `Failed to start Continue JV Chat API server on ${host}:${port}: ${e?.message ?? e}`,
       );
     }
   }

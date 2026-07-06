@@ -30,7 +30,7 @@ export interface ChatStreamEvent {
   data: unknown;
 }
 
-const CHAT_API_OUTPUT_CHANNEL_NAME = "Continue Chat API";
+const CHAT_API_OUTPUT_CHANNEL_NAME = "Continue JV Chat API";
 
 /**
  * Exposes the chat session that's active in the Continue sidebar over a
@@ -195,7 +195,7 @@ export class ChatApiServer {
         res.status(400).json({ error: "Body must be { input: string }" });
         return;
       }
-      await vscode.commands.executeCommand("continue.continueGUIView.focus");
+      await vscode.commands.executeCommand("continueJv.continueGUIView.focus");
       await this.webviewProtocol.request("userInput", { input });
       res.json({ ok: true });
     });
@@ -227,7 +227,7 @@ export class ChatApiServer {
         const parsed = JSON.parse(raw.toString());
         if (parsed?.type === "message" && typeof parsed.input === "string") {
           await vscode.commands.executeCommand(
-            "continue.continueGUIView.focus",
+            "continueJv.continueGUIView.focus",
           );
           await this.webviewProtocol.request("userInput", {
             input: parsed.input,
