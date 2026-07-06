@@ -55,6 +55,7 @@ export class ChatApiServer {
   private outputChannel: vscode.OutputChannel;
   private token: string = "";
   private port: number = 0;
+  private eventListeners = new Set<(event: ChatStreamEvent) => void>();
 
   constructor(
     private readonly webviewProtocol: VsCodeWebviewProtocol,
@@ -74,6 +75,22 @@ export class ChatApiServer {
 
   get isRunning(): boolean {
     return this.httpServer !== undefined;
+  }
+
+  /**
+   * Subscribe to the mirrored chat stream. Fires for every event, even while
+   * the HTTP server itself is stopped - in-process consumers (e.g. the
+   * Telegram relay) don't require the network API to be enabled.
+   */
+  onEvent(listener: (event: ChatStreamEvent) => void): vscode.Disposable {
+    this.eventListeners.add(listener);
+    return new vscode.Disposable(() => this.eventListeners.delete(listener));
+  }
+
+  /** Inject a user message into the sidebar chat session. */
+  async sendUserMessage(input: string): Promise<void> {
+    await vscode.commands.executeCommand("continueJv.continueGUIView.focus");
+    await this.webviewProtocol.request("userInput", { input });
   }
 
   async start(port: number, host: string, token: string): Promise<void> {
@@ -132,7 +149,7 @@ export class ChatApiServer {
     this.outputChannel.dispose();
   }
 
-  private log(message: string) {
+  log(message: string) {
     this.outputChannel.appendLine(`[${new Date().toISOString()}] ${message}`);
   }
 
@@ -195,8 +212,7 @@ export class ChatApiServer {
         res.status(400).json({ error: "Body must be { input: string }" });
         return;
       }
-      await vscode.commands.executeCommand("continueJv.continueGUIView.focus");
-      await this.webviewProtocol.request("userInput", { input });
+      await this.sendUserMessage(input);
       res.json({ ok: true });
     });
 
@@ -226,12 +242,7 @@ export class ChatApiServer {
       try {
         const parsed = JSON.parse(raw.toString());
         if (parsed?.type === "message" && typeof parsed.input === "string") {
-          await vscode.commands.executeCommand(
-            "continueJv.continueGUIView.focus",
-          );
-          await this.webviewProtocol.request("userInput", {
-            input: parsed.input,
-          });
+          await this.sendUserMessage(parsed.input);
         }
       } catch (e: any) {
         this.log(`Failed to handle WS message: ${e?.message ?? e}`);
@@ -285,6 +296,14 @@ export class ChatApiServer {
   }
 
   private broadcast(event: ChatStreamEvent) {
+    for (const listener of this.eventListeners) {
+      try {
+        listener(event);
+      } catch (e: any) {
+        this.log(`Chat event listener threw: ${e?.message ?? e}`);
+      }
+    }
+
     const payload = JSON.stringify(event);
 
     for (const client of this.sseClients) {

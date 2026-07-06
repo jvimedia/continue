@@ -102,6 +102,18 @@ export class VsCodeMessenger {
       vscode.commands.executeCommand("continueJv.viewLogs");
     });
 
+    this.onWebview("chatApi/getStatus", async (msg) => {
+      return await this.vsCodeExtension.getChatApiStatus();
+    });
+
+    this.onWebview("chatApi/updateSettings", async (msg) => {
+      await this.vsCodeExtension.updateChatApiSettings(msg.data);
+    });
+
+    this.onWebview("chatApi/setTelegramBotToken", async (msg) => {
+      await this.vsCodeExtension.setTelegramBotToken(msg.data.botToken);
+    });
+
     this.onWebview("reloadWindow", (msg) => {
       vscode.commands.executeCommand("workbench.action.reloadWindow");
     });

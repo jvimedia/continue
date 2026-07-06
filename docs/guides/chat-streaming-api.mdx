@@ -11,7 +11,7 @@ The Continue VS Code extension can expose the chat session running in its sideba
 - Read a snapshot of the current session's history
 - Send a new message into the chat, exactly as if it were typed into the sidebar
 
-This is what powers the reference [iOS app](https://github.com/continuedev/continue/tree/main/apps/ios/ContinueChat) and [Telegram bot](https://github.com/continuedev/continue/tree/main/integrations/telegram-bot) in this repo, but the API itself is plain HTTP/SSE/WebSocket, so you can build your own client against it.
+This is what powers the reference [iOS app](https://github.com/continuedev/continue/tree/main/apps/ios/ContinueChat) in this repo and the built-in Telegram bot relay, but the API itself is plain HTTP/SSE/WebSocket, so you can build your own client against it.
 
 <Warning>
   This exposes the content of your chat (including code context) to anything
@@ -30,14 +30,35 @@ There is one architectural consequence worth knowing: a message you type **direc
 
 ## Enabling the Server
 
-1. Open VS Code settings and set:
-   - `continue.chatApi.enabled`: `true`
-   - `continue.chatApi.port` (optional, default `65432`)
-   - `continue.chatApi.host` (optional, default `127.0.0.1`)
-2. Reload the window (or toggle the setting off/on). Continue shows a notification with the server URL and a **Copy Token** button.
-3. To retrieve the token again later, run **Continue: Show Chat API Token** from the Command Palette.
+The easiest way is the Continue sidebar: **Settings → Remote Access**. There you can toggle the server, change the port, allow LAN access, and copy the server URL and token.
 
-The token is generated once per VS Code installation and stored in VS Code's encrypted `SecretStorage` - it is not written to your settings file.
+Equivalently, in VS Code settings:
+
+- `continue.chatApi.enabled`: `true`
+- `continue.chatApi.port` (optional, default `65433`)
+- `continue.chatApi.host` (optional, default `127.0.0.1`; the "Allow LAN Access" toggle sets this to `0.0.0.0`)
+- `continue.chatApi.mdns` (optional, default `true`): advertise the server via Bonjour/mDNS
+
+The token can also be retrieved with **Continue: Show Chat API Token** from the Command Palette. It is generated once per VS Code installation and stored in VS Code's encrypted `SecretStorage` - it is not written to your settings file.
+
+## Auto-Discovery (Bonjour/mDNS)
+
+When the server is enabled, LAN access is on (host `0.0.0.0`), and `continue.chatApi.mdns` is `true`, the extension advertises the server on the local network as a `_continuejv._tcp` Bonjour service. Clients like the iOS app can then find your editor without you typing an IP address. Loopback-bound servers are never advertised, since other devices couldn't reach them anyway.
+
+## Telegram Bot Relay
+
+The extension can also relay the chat session to a Telegram bot, with no separate server process:
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) and copy its token.
+2. In the Continue sidebar under **Settings → Telegram Bot**, enable the relay and paste the bot token (stored in `SecretStorage`; also settable via **Continue: Set Telegram Bot Token**).
+3. Message your bot once - it replies with your chat ID. Add that ID to **Allowed Chat IDs**.
+
+From then on, messages you send to the bot from an allowed chat are injected into the sidebar conversation, and the assistant's replies (plus user messages from other clients) are sent back to every allowed chat. The relay uses Telegram long polling, so it works behind NAT and does not require the HTTP API server itself to be enabled.
+
+<Warning>
+  Anyone in an allowed Telegram chat can read and write your Continue chat
+  session. Only add chat IDs you control.
+</Warning>
 
 ## Authentication
 
@@ -148,8 +169,8 @@ ws.onopen = () => ws.send(JSON.stringify({ type: "message", input: "Hello" }));
 
 ## Reference Clients
 
-- **iOS app** (`apps/ios/ContinueChat`): a minimal SwiftUI app that connects over SSE and mirrors Continue's dark/blue theme. Open the Xcode project, set the server URL and token in the app's settings screen, and run it in Simulator or on a device on the same network as your machine.
-- **Telegram bot** (`integrations/telegram-bot`): a Node.js bot that relays messages between a Telegram chat and the Chat API - forwarding your Telegram messages into Continue and streaming the assistant's replies back as edited Telegram messages. See its README for setup with `BotFather`.
+- **iOS app** (`apps/ios/ContinueChat`): a SwiftUI app that discovers your editor via Bonjour (or takes an explicit host/URL and port), mirrors the conversation live over WebSocket, and sends messages into it. See its README for build instructions (XcodeGen).
+- **Telegram bot**: built into the extension itself - see [Telegram Bot Relay](#telegram-bot-relay) above.
 
 ## Troubleshooting
 

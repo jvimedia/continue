@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import fs from "fs";
+import os from "os";
 import path from "path";
 
 import { IContextProvider } from "core";
@@ -7,6 +8,7 @@ import { ConfigHandler } from "core/config/ConfigHandler";
 import { EXTENSION_NAME } from "core/util/constants";
 import { Core } from "core/core";
 import { FromCoreProtocol, ToCoreProtocol } from "core/protocol";
+import { ChatApiSettingsUpdate, ChatApiStatus } from "core/protocol/ideWebview";
 import { InProcessMessenger } from "core/protocol/messenger";
 import {
   getConfigJsonPath,
@@ -38,6 +40,8 @@ import { VsCodeIdeUtils } from "../util/ideUtils";
 import { VsCodeIde } from "../VsCodeIde";
 
 import { ChatApiServer } from "../apiServer/ChatApiServer";
+import { MdnsAdvertiser } from "../apiServer/MdnsAdvertiser";
+import { TelegramBotRelay } from "../apiServer/TelegramBotRelay";
 
 import { ConfigYamlDocumentLinkProvider } from "./ConfigYamlDocumentLinkProvider";
 import { VsCodeMessenger } from "./VsCodeMessenger";
@@ -82,6 +86,8 @@ export class VsCodeExtension {
   private uriHandler = new UriEventHandler();
   private completionProvider: ContinueCompletionProvider;
   private chatApiServer?: ChatApiServer;
+  private chatApiMdns?: MdnsAdvertiser;
+  private telegramRelay?: TelegramBotRelay;
 
   private ARBITRARY_TYPING_DELAY = 2000;
 
@@ -290,8 +296,15 @@ export class VsCodeExtension {
       this.sidebar.webviewProtocol,
       inProcessMessenger,
     );
+    this.chatApiMdns = new MdnsAdvertiser();
+    const chatApiLog = (message: string) => this.chatApiServer?.log(message);
+    this.telegramRelay = new TelegramBotRelay(this.chatApiServer, chatApiLog);
     context.subscriptions.push({
-      dispose: () => this.chatApiServer?.dispose(),
+      dispose: () => {
+        this.chatApiServer?.dispose();
+        this.chatApiMdns?.stop();
+        this.telegramRelay?.dispose();
+      },
     });
     void this.setupChatApiServer(context);
     context.subscriptions.push(
@@ -305,6 +318,23 @@ export class VsCodeExtension {
       vscode.commands.registerCommand(
         "continueJv.chatApi.showToken",
         async () => await this.showChatApiToken(context),
+      ),
+    );
+    context.subscriptions.push(
+      vscode.commands.registerCommand(
+        "continueJv.chatApi.setTelegramBotToken",
+        async () => {
+          const botToken = await vscode.window.showInputBox({
+            title: "Telegram Bot Token",
+            prompt:
+              "Paste the bot token from @BotFather (leave empty to clear)",
+            password: true,
+            ignoreFocusOut: true,
+          });
+          if (botToken !== undefined) {
+            await this.setTelegramBotToken(botToken);
+          }
+        },
       ),
     );
 
@@ -702,29 +732,159 @@ export class VsCodeExtension {
     }
     const config = vscode.workspace.getConfiguration(EXTENSION_NAME);
     const enabled = config.get<boolean>("chatApi.enabled", false);
+    const port = config.get<number>("chatApi.port", 65433);
+    const host = config.get<string>("chatApi.host", "127.0.0.1");
+    const mdnsEnabled = config.get<boolean>("chatApi.mdns", true);
+
+    this.chatApiMdns?.stop();
 
     if (!enabled) {
       await this.chatApiServer.stop();
+    } else {
+      const token = await this.getOrCreateChatApiToken(context);
+      try {
+        await this.chatApiServer.start(port, host, token);
+        // Advertising a loopback-only server would let other devices discover
+        // something they can't reach, so only advertise non-loopback binds.
+        if (mdnsEnabled && !isLoopbackHost(host)) {
+          this.chatApiMdns?.advertise(port, (m) => this.chatApiServer?.log(m));
+        }
+      } catch (e: any) {
+        void vscode.window.showErrorMessage(
+          `Failed to start Continue JV Chat API server on ${host}:${port}: ${e?.message ?? e}`,
+        );
+      }
+    }
+
+    await this.setupTelegramRelay(context);
+  }
+
+  private async setupTelegramRelay(context: vscode.ExtensionContext) {
+    if (!this.telegramRelay) {
       return;
     }
+    const config = vscode.workspace.getConfiguration(EXTENSION_NAME);
+    const enabled = config.get<boolean>("chatApi.telegram.enabled", false);
+    const allowedChatIds = config.get<string>(
+      "chatApi.telegram.allowedChatIds",
+      "",
+    );
+    const botToken = await context.secrets.get(TELEGRAM_BOT_TOKEN_SECRET_KEY);
 
+    if (!enabled || !botToken) {
+      this.telegramRelay.stop();
+      return;
+    }
+    await this.telegramRelay.start({ botToken, allowedChatIds });
+  }
+
+  public async getChatApiStatus(): Promise<ChatApiStatus> {
+    const config = vscode.workspace.getConfiguration(EXTENSION_NAME);
+    const enabled = config.get<boolean>("chatApi.enabled", false);
     const port = config.get<number>("chatApi.port", 65433);
     const host = config.get<string>("chatApi.host", "127.0.0.1");
-    const token = await this.getOrCreateChatApiToken(context);
+    const mdnsEnabled = config.get<boolean>("chatApi.mdns", true);
+    const token = await this.getOrCreateChatApiToken(this.extensionContext);
+    const botToken = await this.extensionContext.secrets.get(
+      TELEGRAM_BOT_TOKEN_SECRET_KEY,
+    );
+    const telegramStatus = this.telegramRelay?.status;
 
-    try {
-      await this.chatApiServer.start(port, host, token);
-      const action = await vscode.window.showInformationMessage(
-        `Continue JV Chat API is running at http://${host}:${port}`,
-        "Copy Token",
-      );
-      if (action === "Copy Token") {
-        await vscode.env.clipboard.writeText(token);
+    const urls: string[] = [];
+    if (host === "0.0.0.0" || host === "::") {
+      urls.push(`http://127.0.0.1:${port}`);
+      for (const addresses of Object.values(os.networkInterfaces())) {
+        for (const address of addresses ?? []) {
+          if (address.family === "IPv4" && !address.internal) {
+            urls.push(`http://${address.address}:${port}`);
+          }
+        }
       }
-    } catch (e: any) {
-      void vscode.window.showErrorMessage(
-        `Failed to start Continue JV Chat API server on ${host}:${port}: ${e?.message ?? e}`,
+    } else {
+      urls.push(`http://${host}:${port}`);
+    }
+
+    return {
+      enabled,
+      running: this.chatApiServer?.isRunning ?? false,
+      host,
+      port,
+      token,
+      mdnsEnabled,
+      urls,
+      telegram: {
+        enabled: config.get<boolean>("chatApi.telegram.enabled", false),
+        botTokenSet: !!botToken,
+        botUsername: telegramStatus?.botUsername,
+        allowedChatIds: config.get<string>(
+          "chatApi.telegram.allowedChatIds",
+          "",
+        ),
+        status: telegramStatus?.state ?? "stopped",
+        error: telegramStatus?.error,
+      },
+    };
+  }
+
+  public async updateChatApiSettings(
+    update: ChatApiSettingsUpdate,
+  ): Promise<void> {
+    const config = vscode.workspace.getConfiguration(EXTENSION_NAME);
+    const target = vscode.ConfigurationTarget.Global;
+    if (update.enabled !== undefined) {
+      await config.update("chatApi.enabled", update.enabled, target);
+    }
+    if (update.port !== undefined) {
+      await config.update("chatApi.port", update.port, target);
+    }
+    if (update.lanAccess !== undefined) {
+      await config.update(
+        "chatApi.host",
+        update.lanAccess ? "0.0.0.0" : "127.0.0.1",
+        target,
       );
     }
+    if (update.mdnsEnabled !== undefined) {
+      await config.update("chatApi.mdns", update.mdnsEnabled, target);
+    }
+    if (update.telegramEnabled !== undefined) {
+      await config.update(
+        "chatApi.telegram.enabled",
+        update.telegramEnabled,
+        target,
+      );
+    }
+    if (update.telegramAllowedChatIds !== undefined) {
+      await config.update(
+        "chatApi.telegram.allowedChatIds",
+        update.telegramAllowedChatIds,
+        target,
+      );
+    }
+    // Config change events re-run setupChatApiServer, so no restart needed here.
   }
+
+  public async setTelegramBotToken(botToken: string): Promise<void> {
+    if (botToken.trim()) {
+      await this.extensionContext.secrets.store(
+        TELEGRAM_BOT_TOKEN_SECRET_KEY,
+        botToken.trim(),
+      );
+    } else {
+      await this.extensionContext.secrets.delete(TELEGRAM_BOT_TOKEN_SECRET_KEY);
+    }
+    // Secret changes don't fire onDidChangeConfiguration - restart manually.
+    await this.setupTelegramRelay(this.extensionContext);
+  }
+}
+
+const TELEGRAM_BOT_TOKEN_SECRET_KEY = "continue-jv.chatApi.telegramBotToken";
+
+function isLoopbackHost(host: string): boolean {
+  return (
+    host === "127.0.0.1" ||
+    host === "localhost" ||
+    host === "::1" ||
+    host.startsWith("127.")
+  );
 }

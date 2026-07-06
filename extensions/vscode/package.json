@@ -162,6 +162,21 @@
           "type": "string",
           "default": "127.0.0.1",
           "description": "Host/interface the Continue JV Chat API server binds to. Only change this from 127.0.0.1 if you understand the security implications of exposing your chat on the network - always keep the token secret."
+        },
+        "continueJv.chatApi.mdns": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Advertise the Chat API on the local network via Bonjour/mDNS (`_continuejv._tcp`) so clients like the Continue JV iOS app can auto-discover it. Only takes effect when the server is bound to a non-loopback host (e.g. `0.0.0.0`)."
+        },
+        "continueJv.chatApi.telegram.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Relay the chat session to a Telegram bot: messages sent to the bot appear in the Continue chat, and assistant replies are sent back. Requires a bot token (set via the Continue settings UI or the `Continue JV: Set Telegram Bot Token` command) and at least one allowed chat ID."
+        },
+        "continueJv.chatApi.telegram.allowedChatIds": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Comma-separated list of Telegram chat IDs allowed to talk to the bot. Message your bot once and it will reply with your chat ID so you can add it here. Anyone in these chats can read and send messages in your Continue chat session."
         }
       }
     },
@@ -169,6 +184,11 @@
       {
         "command": "continueJv.chatApi.showToken",
         "title": "Continue JV: Show Chat API Token",
+        "category": "Continue JV"
+      },
+      {
+        "command": "continueJv.chatApi.setTelegramBotToken",
+        "title": "Continue JV: Set Telegram Bot Token",
         "category": "Continue JV"
       },
       {
@@ -745,6 +765,7 @@
     "@reduxjs/toolkit": "^1.9.3",
     "@vscode/ripgrep": "^1.15.9",
     "axios": "^1.13.1",
+    "bonjour-service": "^1.4.2",
     "core": "file:../../core",
     "cors": "^2.8.5",
     "dbinfoz": "^0.14.0",

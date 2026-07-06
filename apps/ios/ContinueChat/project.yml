@@ -1,0 +1,41 @@
+# XcodeGen project spec - run `xcodegen generate` in this directory to
+# produce ContinueChat.xcodeproj (brew install xcodegen).
+name: ContinueChat
+options:
+  bundleIdPrefix: me.valouch
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+targets:
+  ContinueChat:
+    type: application
+    platform: iOS
+    sources:
+      - Assets.xcassets
+      - Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.valouch.continuechat
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.9"
+    info:
+      path: Info.plist
+      properties:
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleDisplayName: Continue Chat
+        # Required for Bonjour discovery of the Chat API server on the LAN
+        NSLocalNetworkUsageDescription: >-
+          Continue Chat looks for Continue JV Chat API servers on your local
+          network so you can connect to your editor without typing an address.
+        NSBonjourServices:
+          - _continuejv._tcp
+        # The Chat API is plain HTTP/WS on the LAN, which ATS blocks by default
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoads: true

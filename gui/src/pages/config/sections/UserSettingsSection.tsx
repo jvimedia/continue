@@ -7,9 +7,11 @@ import { Card, Toggle, useFontSize } from "../../../components/ui";
 import { IdeMessengerContext } from "../../../context/IdeMessenger";
 import { useAppDispatch, useAppSelector } from "../../../redux/hooks";
 import { updateConfig } from "../../../redux/slices/configSlice";
+import { isJetBrains } from "../../../util";
 import { setLocalStorage } from "../../../util/localStorage";
 import { ConfigHeader } from "../components/ConfigHeader";
 import { UserSetting } from "../components/UserSetting";
+import { ChatApiSettingsSection } from "./ChatApiSettingsSection";
 
 export function UserSettingsSection() {
   /////// User settings section //////
@@ -227,6 +229,9 @@ export function UserSettingsSection() {
               </div>
             </Card>
           </div>
+
+          {/* Chat API / remote access - VS Code only, lives in VS Code settings */}
+          {!isJetBrains() && <ChatApiSettingsSection />}
 
           {/* Experimental Settings */}
           <div>

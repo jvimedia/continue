@@ -13,6 +13,37 @@ import {
   ShowFilePayload,
 } from "../";
 
+export interface ChatApiTelegramStatus {
+  enabled: boolean;
+  botTokenSet: boolean;
+  botUsername?: string;
+  allowedChatIds: string;
+  status: "stopped" | "starting" | "running" | "error";
+  error?: string;
+}
+
+export interface ChatApiStatus {
+  enabled: boolean;
+  running: boolean;
+  host: string;
+  port: number;
+  token: string;
+  mdnsEnabled: boolean;
+  /** URLs the server is reachable at, including LAN IPs when bound to 0.0.0.0 */
+  urls: string[];
+  telegram: ChatApiTelegramStatus;
+}
+
+export interface ChatApiSettingsUpdate {
+  enabled?: boolean;
+  port?: number;
+  /** true = bind 0.0.0.0 (LAN access), false = bind 127.0.0.1 */
+  lanAccess?: boolean;
+  mdnsEnabled?: boolean;
+  telegramEnabled?: boolean;
+  telegramAllowedChatIds?: string;
+}
+
 export type ToIdeFromWebviewProtocol = ToIdeFromWebviewOrCoreProtocol & {
   openUrl: [string, void];
   applyToFile: [ApplyToFilePayload, void];
@@ -50,6 +81,9 @@ export type ToIdeFromWebviewProtocol = ToIdeFromWebviewOrCoreProtocol & {
   "edit/addCurrentSelection": [undefined, void];
   "edit/clearDecorations": [undefined, void];
   "session/share": [{ sessionId: string }, void];
+  "chatApi/getStatus": [undefined, ChatApiStatus];
+  "chatApi/updateSettings": [ChatApiSettingsUpdate, void];
+  "chatApi/setTelegramBotToken": [{ botToken: string }, void];
 };
 
 export type ToWebviewFromIdeProtocol = ToWebviewFromIdeOrCoreProtocol & {
