@@ -17,9 +17,17 @@ export class MdnsAdvertiser {
   private bonjour?: Bonjour;
   private service?: Service;
 
-  advertise(port: number, log: (message: string) => void): void {
+  advertise(
+    port: number,
+    workspaceName: string,
+    log: (message: string) => void,
+  ): void {
     this.stop();
-    const name = `Continue JV (${os.hostname()})`;
+    // The workspace name makes multiple VS Code windows distinguishable in
+    // client server lists (and keeps the Bonjour name unique per window).
+    const name = workspaceName
+      ? `${workspaceName} — Continue JV (${os.hostname()})`
+      : `Continue JV (${os.hostname()})`;
     this.bonjour = new Bonjour();
     this.service = this.bonjour.publish({
       name,
@@ -28,6 +36,8 @@ export class MdnsAdvertiser {
       txt: {
         ws: "/ws",
         events: "/events",
+        gui: "/gui",
+        workspace: workspaceName,
         api: "1",
       },
     });

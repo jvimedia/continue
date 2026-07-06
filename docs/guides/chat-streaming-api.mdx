@@ -41,9 +41,24 @@ Equivalently, in VS Code settings:
 
 The token can also be retrieved with **Continue: Show Chat API Token** from the Command Palette. It is generated once per VS Code installation and stored in VS Code's encrypted `SecretStorage` - it is not written to your settings file.
 
+If the configured port is already taken (typically by the Chat API server of another VS Code window), the server walks forward to the next free port - so every open window gets its own server, and clients can list and join any of them.
+
 ## Auto-Discovery (Bonjour/mDNS)
 
-When the server is enabled, LAN access is on (host `0.0.0.0`), and `continue.chatApi.mdns` is `true`, the extension advertises the server on the local network as a `_continuejv._tcp` Bonjour service. Clients like the iOS app can then find your editor without you typing an IP address. Loopback-bound servers are never advertised, since other devices couldn't reach them anyway.
+When the server is enabled, LAN access is on (host `0.0.0.0`), and `continue.chatApi.mdns` is `true`, the extension advertises the server on the local network as a `_continuejv._tcp` Bonjour service. Clients like the iOS app can then find your editor without you typing an IP address. The advertisement includes the workspace name in its TXT record, so a client can show *which project* each VS Code window has open. Loopback-bound servers are never advertised, since other devices couldn't reach them anyway.
+
+## Remote GUI
+
+Beyond the raw JSON API, the server hosts the extension's **actual sidebar GUI** at `GET /gui?token=<token>` - the same built React app the sidebar renders, with identical markdown formatting, mode selector (Chat/Plan/Agent), model picker, session tabs, and settings. Instead of VS Code's webview transport, the page bridges the same webview protocol over a WebSocket at `/gui-ws`; on the extension side those messages feed into the exact handler chain the sidebar uses, so the remote GUI is a full Continue client sharing the window's config, sessions, and tools.
+
+- `GET /gui?token=<token>&sessionId=<id>` opens a specific session after loading.
+- Imperative messages (e.g. the `userInput` injection used by `POST /message` and the Telegram relay) are delivered only to the real sidebar, never to remote GUI clients, so inputs are never processed twice.
+- Each remote GUI is its own instance of the app: a turn you start on one client streams live on that client, while other clients see the updated session on their next session load rather than token-by-token.
+
+Two supporting endpoints power client-side window/session pickers:
+
+- `GET /info`: `{ workspaceName, workspacePaths, appName, extensionVersion, currentSessionId, port }` - identifies the VS Code window and which session its sidebar currently shows.
+- `GET /sessions`: `{ sessions: [{ sessionId, title, dateCreated, workspaceDirectory }] }` - all sessions of this window, so a client can offer "join session".
 
 ## Telegram Bot Relay
 
@@ -169,7 +184,7 @@ ws.onopen = () => ws.send(JSON.stringify({ type: "message", input: "Hello" }));
 
 ## Reference Clients
 
-- **iOS app** (`apps/ios/ContinueChat`): a SwiftUI app that discovers your editor via Bonjour (or takes an explicit host/URL and port), mirrors the conversation live over WebSocket, and sends messages into it. See its README for build instructions (XcodeGen).
+- **iOS app** (`apps/ios/ContinueChat`): discovers open editors via Bonjour (showing each window's project) or takes an explicit host/URL and port, lists that window's sessions so you can pick one to join, and then renders the [Remote GUI](#remote-gui) - the identical sidebar interface - in a native shell. See its README for build instructions (XcodeGen).
 - **Telegram bot**: built into the extension itself - see [Telegram Bot Relay](#telegram-bot-relay) above.
 
 ## Troubleshooting

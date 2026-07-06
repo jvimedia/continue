@@ -19,10 +19,13 @@ final class ServerDiscovery: ObservableObject {
     struct DiscoveredServer: Identifiable, Equatable {
         let id: String
         let name: String
+        /// Workspace/project name advertised in the TXT record, so the list
+        /// shows which VS Code window this is.
+        let workspace: String?
         let endpoint: NWEndpoint
 
         static func == (lhs: DiscoveredServer, rhs: DiscoveredServer) -> Bool {
-            lhs.id == rhs.id
+            lhs.id == rhs.id && lhs.workspace == rhs.workspace
         }
     }
 
@@ -36,7 +39,7 @@ final class ServerDiscovery: ObservableObject {
         let parameters = NWParameters()
         parameters.includePeerToPeer = true
         let browser = NWBrowser(
-            for: .bonjour(type: "_continuejv._tcp", domain: nil),
+            for: .bonjourWithTXTRecord(type: "_continuejv._tcp", domain: nil),
             using: parameters
         )
         browser.browseResultsChangedHandler = { [weak self] results, _ in
@@ -44,9 +47,15 @@ final class ServerDiscovery: ObservableObject {
                 guard case let .service(name, _, _, _) = result.endpoint else {
                     return nil
                 }
+                var workspace: String?
+                if case let .bonjour(txtRecord) = result.metadata {
+                    let value = txtRecord.dictionary["workspace"]
+                    workspace = (value?.isEmpty ?? true) ? nil : value
+                }
                 return DiscoveredServer(
                     id: name,
                     name: name,
+                    workspace: workspace,
                     endpoint: result.endpoint
                 )
             }

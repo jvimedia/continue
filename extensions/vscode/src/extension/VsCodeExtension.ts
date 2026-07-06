@@ -747,7 +747,13 @@ export class VsCodeExtension {
         // Advertising a loopback-only server would let other devices discover
         // something they can't reach, so only advertise non-loopback binds.
         if (mdnsEnabled && !isLoopbackHost(host)) {
-          this.chatApiMdns?.advertise(port, (m) => this.chatApiServer?.log(m));
+          this.chatApiMdns?.advertise(
+            // The server may have moved to a nearby port if another VS Code
+            // window already took the configured one
+            this.chatApiServer.actualPort,
+            vscode.workspace.name ?? "",
+            (m) => this.chatApiServer?.log(m),
+          );
         }
       } catch (e: any) {
         void vscode.window.showErrorMessage(
@@ -781,7 +787,11 @@ export class VsCodeExtension {
   public async getChatApiStatus(): Promise<ChatApiStatus> {
     const config = vscode.workspace.getConfiguration(EXTENSION_NAME);
     const enabled = config.get<boolean>("chatApi.enabled", false);
-    const port = config.get<number>("chatApi.port", 65433);
+    const configuredPort = config.get<number>("chatApi.port", 65433);
+    // Show the port actually bound (may differ with multiple windows open)
+    const port = this.chatApiServer?.isRunning
+      ? this.chatApiServer.actualPort
+      : configuredPort;
     const host = config.get<string>("chatApi.host", "127.0.0.1");
     const mdnsEnabled = config.get<boolean>("chatApi.mdns", true);
     const token = await this.getOrCreateChatApiToken(this.extensionContext);

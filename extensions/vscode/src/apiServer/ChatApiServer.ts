@@ -1,5 +1,6 @@
 import * as crypto from "node:crypto";
 import * as http from "node:http";
+import * as path from "node:path";
 
 import { ChatMessage } from "core";
 import { ToCoreProtocol, FromCoreProtocol } from "core/protocol";
@@ -9,7 +10,11 @@ import express from "express";
 import * as vscode from "vscode";
 import { WebSocket, WebSocketServer } from "ws";
 
+import { getExtensionVersion } from "../util/util";
+import { getExtensionUri } from "../util/vscode";
 import { VsCodeWebviewProtocol } from "../webviewProtocol";
+
+import { renderRemoteGuiHtml } from "./RemoteGui";
 
 /**
  * A single update pushed to subscribers of the chat stream (SSE or
@@ -50,7 +55,10 @@ export class ChatApiServer {
   private app = express();
   private httpServer?: http.Server;
   private wss?: WebSocketServer;
+  private guiWss?: WebSocketServer;
   private wsClients = new Set<WebSocket>();
+  private guiWsClients = new Set<WebSocket>();
+  private guiClientDisposables = new Map<WebSocket, vscode.Disposable>();
   private sseClients = new Set<express.Response>();
   private outputChannel: vscode.OutputChannel;
   private token: string = "";
@@ -93,13 +101,18 @@ export class ChatApiServer {
     await this.webviewProtocol.request("userInput", { input });
   }
 
+  /** The port the server is actually listening on (differs from the
+   * configured port when it was taken, e.g. by another VS Code window). */
+  get actualPort(): number {
+    return this.port;
+  }
+
   async start(port: number, host: string, token: string): Promise<void> {
     if (this.isRunning) {
       await this.stop();
     }
 
     this.token = token;
-    this.port = port;
 
     this.app = express();
     this.app.use(cors());
@@ -111,14 +124,44 @@ export class ChatApiServer {
     this.httpServer = http.createServer(this.app);
     this.wss = new WebSocketServer({ server: this.httpServer, path: "/ws" });
     this.wss.on("connection", (ws, req) => this.handleWsConnection(ws, req));
-
-    await new Promise<void>((resolve, reject) => {
-      this.httpServer!.once("error", reject);
-      this.httpServer!.listen(port, host, () => resolve());
+    this.guiWss = new WebSocketServer({
+      server: this.httpServer,
+      path: "/gui-ws",
     });
+    this.guiWss.on("connection", (ws, req) =>
+      this.handleGuiWsConnection(ws, req),
+    );
+
+    // Each VS Code window runs its own server, so the configured port may
+    // already be taken by another window - walk forward to the next free one.
+    let lastError: Error | undefined;
+    for (let candidate = port; candidate < port + 10; candidate++) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const onError = (e: Error) => reject(e);
+          this.httpServer!.once("error", onError);
+          this.httpServer!.listen(candidate, host, () => {
+            this.httpServer!.removeListener("error", onError);
+            resolve();
+          });
+        });
+        this.port = candidate;
+        lastError = undefined;
+        break;
+      } catch (e: any) {
+        lastError = e;
+        if (e?.code !== "EADDRINUSE") {
+          break;
+        }
+      }
+    }
+    if (lastError) {
+      this.httpServer = undefined;
+      throw lastError;
+    }
 
     this.log(
-      `Chat API server listening on http://${host}:${port} (SSE: /events, WebSocket: /ws)`,
+      `Chat API server listening on http://${host}:${this.port} (SSE: /events, WebSocket: /ws, remote GUI: /gui)`,
     );
   }
 
@@ -133,8 +176,19 @@ export class ChatApiServer {
     }
     this.wsClients.clear();
 
+    for (const client of this.guiWsClients) {
+      client.close();
+    }
+    this.guiWsClients.clear();
+    for (const disposable of this.guiClientDisposables.values()) {
+      disposable.dispose();
+    }
+    this.guiClientDisposables.clear();
+
     this.wss?.close();
     this.wss = undefined;
+    this.guiWss?.close();
+    this.guiWss = undefined;
 
     if (this.httpServer) {
       await new Promise<void>((resolve) =>
@@ -174,7 +228,9 @@ export class ChatApiServer {
     res: express.Response,
     next: express.NextFunction,
   ) {
-    if (req.path === "/health") {
+    // /gui/* serves only the static GUI app bundle (no user data); the page
+    // itself can't do anything without a valid token for its /gui-ws bridge.
+    if (req.path === "/health" || req.path.startsWith("/gui")) {
       next();
       return;
     }
@@ -196,6 +252,62 @@ export class ChatApiServer {
   private registerRoutes() {
     this.app.get("/health", (_req, res) => {
       res.json({ ok: true });
+    });
+
+    // ------ Remote GUI: the real React app, served for browsers/WKWebView
+
+    this.app.get(["/gui", "/gui/"], (req, res) => {
+      const queryToken =
+        typeof req.query.token === "string" ? req.query.token : undefined;
+      if (!this.isTokenValid(queryToken)) {
+        res.status(401).send("Invalid or missing API token");
+        return;
+      }
+      res.type("html").send(renderRemoteGuiHtml());
+    });
+
+    this.app.use(
+      "/gui",
+      express.static(path.join(getExtensionUri().fsPath, "gui"), {
+        index: false,
+        fallthrough: false,
+      }),
+    );
+
+    // ------ Window/session browser (used by the iOS app's server list)
+
+    this.app.get("/info", async (_req, res) => {
+      const workspaceFolders =
+        vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ??
+        [];
+      const currentSessionId = await Promise.race([
+        this.webviewProtocol.request("getCurrentSessionId", undefined),
+        new Promise<undefined>((resolve) =>
+          setTimeout(() => resolve(undefined), 3000),
+        ),
+      ]);
+      res.json({
+        workspaceName:
+          vscode.workspace.name ??
+          workspaceFolders.map((f) => path.basename(f)).join(", "),
+        workspacePaths: workspaceFolders,
+        appName: vscode.env.appName,
+        extensionVersion: getExtensionVersion(),
+        currentSessionId,
+        port: this.port,
+      });
+    });
+
+    this.app.get("/sessions", async (_req, res) => {
+      try {
+        const sessions = await this.inProcessMessenger.externalRequest(
+          "history/list",
+          {},
+        );
+        res.json({ sessions });
+      } catch (e: any) {
+        res.status(500).json({ error: e?.message ?? String(e) });
+      }
     });
 
     this.app.get("/session", async (_req, res) => {
@@ -225,6 +337,45 @@ export class ChatApiServer {
       res.write(": connected\n\n");
       this.sseClients.add(res);
       req.on("close", () => this.sseClients.delete(res));
+    });
+  }
+
+  /**
+   * A remote GUI client: a full instance of the React sidebar app running in
+   * a browser/WKWebView. Frames in both directions are the exact webview
+   * protocol messages; VsCodeWebviewProtocol broadcasts every outbound
+   * message to all clients and each GUI filters by the messageIds it owns.
+   */
+  private handleGuiWsConnection(ws: WebSocket, req: http.IncomingMessage) {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const token = url.searchParams.get("token") ?? undefined;
+    if (!this.isTokenValid(token)) {
+      ws.close(4401, "Invalid or missing API token");
+      return;
+    }
+
+    this.guiWsClients.add(ws);
+    const disposable = this.webviewProtocol.addRemoteClient((msg) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg));
+      }
+    });
+    this.guiClientDisposables.set(ws, disposable);
+    this.log("Remote GUI client connected");
+
+    ws.on("close", () => {
+      this.guiWsClients.delete(ws);
+      this.guiClientDisposables.get(ws)?.dispose();
+      this.guiClientDisposables.delete(ws);
+      this.log("Remote GUI client disconnected");
+    });
+    ws.on("message", async (raw) => {
+      try {
+        const parsed = JSON.parse(raw.toString());
+        await this.webviewProtocol.handleRemoteMessage(parsed);
+      } catch (e: any) {
+        this.log(`Failed to handle remote GUI message: ${e?.message ?? e}`);
+      }
     });
   }
 
