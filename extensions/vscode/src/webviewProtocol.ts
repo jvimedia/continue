@@ -16,6 +16,9 @@ import { handleLLMError } from "./util/errorHandling";
  * responses) are broadcast to everyone.
  */
 const SIDEBAR_ONLY_MESSAGE_TYPES = new Set<string>([
+  // Only the sidebar may answer "which session is current" - a remote GUI
+  // showing a different session would race it and win with a wrong answer.
+  "getCurrentSessionId",
   "userInput",
   "newSession",
   "newSessionWithPrompt",

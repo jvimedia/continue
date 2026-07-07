@@ -14,8 +14,8 @@ import { DataLogger } from "./data/log";
 import { CodebaseIndexer } from "./indexing/CodebaseIndexer";
 import DocsService from "./indexing/docs/DocsService";
 import { countTokens } from "./llm/countTokens";
-import Lemonade from "./llm/llms/Lemonade";
 import { fetchModels } from "./llm/fetchModels";
+import Lemonade from "./llm/llms/Lemonade";
 import Ollama from "./llm/llms/Ollama";
 import { EditAggregator } from "./nextEdit/context/aggregateEdits";
 import { createNewPromptFileV2 } from "./promptFiles/createNewPromptFile";
@@ -318,6 +318,15 @@ export class Core {
 
     on("history/save", (msg) => {
       historyManager.save(msg.data);
+      // Notify all GUI clients that a session was updated, so other
+      // instances (e.g. the VS Code sidebar when a remote GUI saves)
+      // can reload the session if they're viewing it.
+      this.messenger.send("sessionUpdate", {
+        sessionInfo: {
+          sessionId: msg.data.sessionId,
+          title: msg.data.title,
+        },
+      });
     });
 
     on("history/share", async (msg) => {

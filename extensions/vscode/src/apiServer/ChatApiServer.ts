@@ -122,15 +122,32 @@ export class ChatApiServer {
     this.registerRoutes();
 
     this.httpServer = http.createServer(this.app);
-    this.wss = new WebSocketServer({ server: this.httpServer, path: "/ws" });
+    // Both WebSocket servers must use noServer + a single manual upgrade
+    // router: a WebSocketServer bound directly to the HTTP server aborts
+    // every upgrade whose path doesn't match its own (400), killing the
+    // other endpoint's handshakes.
+    this.wss = new WebSocketServer({ noServer: true });
     this.wss.on("connection", (ws, req) => this.handleWsConnection(ws, req));
-    this.guiWss = new WebSocketServer({
-      server: this.httpServer,
-      path: "/gui-ws",
-    });
+    this.guiWss = new WebSocketServer({ noServer: true });
     this.guiWss.on("connection", (ws, req) =>
       this.handleGuiWsConnection(ws, req),
     );
+    this.httpServer.on("upgrade", (req, socket, head) => {
+      const { pathname } = new URL(req.url ?? "", "http://localhost");
+      const target =
+        pathname === "/ws"
+          ? this.wss
+          : pathname === "/gui-ws"
+            ? this.guiWss
+            : undefined;
+      if (!target) {
+        socket.destroy();
+        return;
+      }
+      target.handleUpgrade(req, socket, head, (ws) => {
+        target.emit("connection", ws, req);
+      });
+    });
 
     // Each VS Code window runs its own server, so the configured port may
     // already be taken by another window - walk forward to the next free one.
@@ -353,6 +370,7 @@ export class ChatApiServer {
       ws.close(4401, "Invalid or missing API token");
       return;
     }
+    const requestedSessionId = url.searchParams.get("sessionId") ?? undefined;
 
     this.guiWsClients.add(ws);
     const disposable = this.webviewProtocol.addRemoteClient((msg) => {
@@ -363,13 +381,51 @@ export class ChatApiServer {
     this.guiClientDisposables.set(ws, disposable);
     this.log("Remote GUI client connected");
 
+    // A fresh GUI instance boots into an empty session; immediately point it
+    // at the requested session, or whatever the sidebar currently shows, so
+    // the phone opens with the conversation already there. Triggered by the
+    // client's first protocol message (proof the React app is up), with a
+    // timer as fallback.
+    let focusPushed = false;
+    const pushSessionFocus = async () => {
+      if (focusPushed) {
+        return;
+      }
+      focusPushed = true;
+      clearTimeout(focusFallback);
+      // Small grace period: the first requests fire while some webview
+      // listeners (including focusContinueSessionId's) are still mounting.
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      const sessionId =
+        requestedSessionId ??
+        (await Promise.race([
+          this.webviewProtocol.request("getCurrentSessionId", undefined),
+          new Promise<undefined>((resolve) =>
+            setTimeout(() => resolve(undefined), 3000),
+          ),
+        ]));
+      if (sessionId && ws.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({
+            messageType: "focusContinueSessionId",
+            data: { sessionId },
+            messageId: crypto.randomUUID(),
+          }),
+        );
+        this.log(`Remote GUI focused on session ${sessionId}`);
+      }
+    };
+    const focusFallback = setTimeout(() => void pushSessionFocus(), 3000);
+
     ws.on("close", () => {
+      clearTimeout(focusFallback);
       this.guiWsClients.delete(ws);
       this.guiClientDisposables.get(ws)?.dispose();
       this.guiClientDisposables.delete(ws);
       this.log("Remote GUI client disconnected");
     });
     ws.on("message", async (raw) => {
+      void pushSessionFocus();
       try {
         const parsed = JSON.parse(raw.toString());
         await this.webviewProtocol.handleRemoteMessage(parsed);

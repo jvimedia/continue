@@ -13,10 +13,8 @@ import {
 } from "../redux/slices/profilesSlice";
 import {
   addContextItemsAtIndex,
-  newSession,
   setHasReasoningEnabled,
   setIsSessionMetadataLoading,
-  setMode,
 } from "../redux/slices/sessionSlice";
 import { setTTSActive } from "../redux/slices/uiSlice";
 
@@ -246,6 +244,30 @@ function ParallelListeners() {
       void dispatch(handleApplyStateUpdate(state));
     },
     [],
+  );
+
+  // When another GUI instance (e.g. the remote GUI on iOS) saves a session,
+  // Core broadcasts a sessionUpdate. If we're viewing the same session,
+  // reload it so the sidebar stays in sync. Skip while streaming to avoid
+  // clobbering in-progress state from our own saves.
+  const isStreaming = useAppSelector((state) => state.session.isStreaming);
+  useWebviewListener(
+    "sessionUpdate",
+    async (data) => {
+      if (isStreaming) {
+        return;
+      }
+      const updatedSessionId = data?.sessionInfo?.sessionId;
+      if (updatedSessionId && updatedSessionId === sessionId) {
+        await dispatch(
+          loadSession({
+            sessionId: updatedSessionId,
+            saveCurrentSession: false,
+          }),
+        );
+      }
+    },
+    [sessionId, isStreaming],
   );
 
   useEffect(() => {

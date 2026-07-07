@@ -102,33 +102,20 @@ const BRIDGE_SCRIPT = `
   var token = params.get("token") || "";
   var sessionId = params.get("sessionId");
   var wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
+  // The server pushes a focusContinueSessionId for the requested session
+  // (or the sidebar's current one when none is given) once the app is up.
   var wsUrl =
-    wsProtocol + "//" + location.host + "/gui-ws?token=" + encodeURIComponent(token);
+    wsProtocol + "//" + location.host + "/gui-ws?token=" + encodeURIComponent(token) +
+    (sessionId ? "&sessionId=" + encodeURIComponent(sessionId) : "");
 
   var socket = null;
   var queue = [];
-  var focusSent = false;
 
   function connect() {
     socket = new WebSocket(wsUrl);
     socket.onopen = function () {
       for (var i = 0; i < queue.length; i++) socket.send(queue[i]);
       queue = [];
-      if (sessionId && !focusSent) {
-        focusSent = true;
-        // Give the React app a moment to mount its listeners, then open the
-        // requested session - same message the "session tabs" feature uses.
-        setTimeout(function () {
-          window.postMessage(
-            {
-              messageType: "focusContinueSessionId",
-              data: { sessionId: sessionId },
-              messageId: "remote-gui-focus-" + Date.now(),
-            },
-            "*"
-          );
-        }, 600);
-      }
     };
     socket.onmessage = function (event) {
       try {
