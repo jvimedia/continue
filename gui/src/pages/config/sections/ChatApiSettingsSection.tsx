@@ -85,11 +85,13 @@ export function ChatApiSettingsSection() {
     ? undefined
     : telegram.status === "running"
       ? `Connected${telegram.botUsername ? ` as @${telegram.botUsername}` : ""}`
-      : telegram.status === "error"
-        ? (telegram.error ?? "Error")
-        : !telegram.botTokenSet
-          ? "Waiting for a bot token"
-          : "Starting…";
+      : telegram.status === "standby"
+        ? `Standby — ${telegram.ownerWorkspace ? `"${telegram.ownerWorkspace}"` : "another window"} owns the bot (switch with /window in Telegram)`
+        : telegram.status === "error"
+          ? (telegram.error ?? "Error")
+          : !telegram.botTokenSet
+            ? "Waiting for a bot token"
+            : "Starting…";
 
   return (
     <div>

@@ -40,7 +40,8 @@ from the host network in all configurations — manual entry always works.
 1. **Pick an editor**: windows advertising on your network appear under
    _Open Editors_ with their project name; or enter a host/IP (or full URL
    like `http://192.168.1.20:65433`) and port manually.
-2. **Enter the token** (asked once per server, stored in the Keychain).
+2. **Enter the token** (asked once per machine — all windows of a VS Code
+   installation share it; stored in the Keychain).
 3. **Pick a session**: the list shows every session of that window, with the
    one currently open in the sidebar marked green. _Current Session_ follows
    whatever the sidebar has open.

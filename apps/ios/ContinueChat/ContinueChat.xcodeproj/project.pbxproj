@@ -24,7 +24,7 @@
 		794263A97356F4B538DE9484 /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
 		A79A7A278D05A4BA61471B4A /* ServerDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerDiscovery.swift; sourceTree = "<group>"; };
 		ACA794E0B859F1F9491831C9 /* ConnectionSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSettings.swift; sourceTree = "<group>"; };
-		B4F91FEE3FAA586626FBC0A0 /* ContinueChat.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ContinueChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B4F91FEE3FAA586626FBC0A0 /* ContinueChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ContinueChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D9ECF4C45E2DF28DC6CEA899 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F06048A5DDFE1810CA8DF9A3 /* ContinueChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinueChatApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -98,8 +98,6 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
-				TargetAttributes = {
-				};
 			};
 			buildConfigurationList = 61F9D6EFCE1D6FF8EB77CABC /* Build configuration list for PBXProject "ContinueChat" */;
 			developmentRegion = en;
@@ -155,6 +153,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UW3RU82G9M;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -174,6 +173,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UW3RU82G9M;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

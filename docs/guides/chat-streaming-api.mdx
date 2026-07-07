@@ -70,6 +70,8 @@ The extension can also relay the chat session to a Telegram bot, with no separat
 
 From then on, messages you send to the bot from an allowed chat are injected into the sidebar conversation, and the assistant's replies (plus user messages from other clients) are sent back to every allowed chat. The relay uses Telegram long polling, so it works behind NAT and does not require the HTTP API server itself to be enabled.
 
+**Multiple VS Code windows**: Telegram allows only one polling consumer per bot, so the windows elect a single owner among themselves (the settings card shows *Standby* in the others, naming the owning window). In Telegram, `/windows` lists all open windows and `/window <n>` moves the bot to another one; if the owning window closes, a standby window takes over automatically within ~30 seconds.
+
 <Warning>
   Anyone in an allowed Telegram chat can read and write your Continue chat
   session. Only add chat IDs you control.

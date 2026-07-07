@@ -52,21 +52,26 @@ enum ConnectionStore {
         let defaults = UserDefaults.standard
         defaults.set(connection.host, forKey: hostKey)
         defaults.set(connection.port, forKey: portKey)
-        saveToken(connection.token, host: connection.host, port: connection.port)
+        saveToken(connection.token, host: connection.host)
     }
 
-    // MARK: Keychain (one entry per server, account = "host:port")
+    // MARK: Keychain
+    //
+    // One entry per *host*, not host:port: the token is per VS Code
+    // installation, and the port a given window binds shifts between
+    // launches (whichever window starts first wins the base port). Keying by
+    // host means the token is entered once per machine.
 
-    private static func tokenQuery(host: String, port: Int) -> [String: Any] {
+    private static func tokenQuery(host: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: tokenService,
-            kSecAttrAccount as String: "\(host):\(port)",
+            kSecAttrAccount as String: host,
         ]
     }
 
-    static func loadToken(host: String, port: Int) -> String? {
-        var query = tokenQuery(host: host, port: port)
+    static func loadToken(host: String) -> String? {
+        var query = tokenQuery(host: host)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: AnyObject?
@@ -78,8 +83,8 @@ enum ConnectionStore {
         return String(data: data, encoding: .utf8)
     }
 
-    static func saveToken(_ token: String, host: String, port: Int) {
-        let query = tokenQuery(host: host, port: port)
+    static func saveToken(_ token: String, host: String) {
+        let query = tokenQuery(host: host)
         SecItemDelete(query as CFDictionary)
         guard !token.isEmpty, let data = token.data(using: .utf8) else {
             return

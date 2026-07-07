@@ -41,7 +41,11 @@ import { VsCodeIde } from "../VsCodeIde";
 
 import { ChatApiServer } from "../apiServer/ChatApiServer";
 import { MdnsAdvertiser } from "../apiServer/MdnsAdvertiser";
-import { TelegramBotRelay } from "../apiServer/TelegramBotRelay";
+import {
+  TelegramBotRelay,
+  TelegramRelayOptions,
+} from "../apiServer/TelegramBotRelay";
+import { TelegramRelayCoordinator } from "../apiServer/TelegramRelayCoordinator";
 
 import { ConfigYamlDocumentLinkProvider } from "./ConfigYamlDocumentLinkProvider";
 import { VsCodeMessenger } from "./VsCodeMessenger";
@@ -88,6 +92,9 @@ export class VsCodeExtension {
   private chatApiServer?: ChatApiServer;
   private chatApiMdns?: MdnsAdvertiser;
   private telegramRelay?: TelegramBotRelay;
+  private telegramCoordinator?: TelegramRelayCoordinator;
+  /** Latest relay options; read by the coordinator's start callback. */
+  private telegramOptions?: TelegramRelayOptions;
 
   private ARBITRARY_TYPING_DELAY = 2000;
 
@@ -299,10 +306,29 @@ export class VsCodeExtension {
     this.chatApiMdns = new MdnsAdvertiser();
     const chatApiLog = (message: string) => this.chatApiServer?.log(message);
     this.telegramRelay = new TelegramBotRelay(this.chatApiServer, chatApiLog);
+    this.telegramRelay.workspaceName = vscode.workspace.name ?? "";
+    this.telegramCoordinator = new TelegramRelayCoordinator(
+      path.join(context.globalStorageUri.fsPath, "telegramRelay"),
+      vscode.workspace.name ?? "",
+      chatApiLog,
+      {
+        start: async (announceHandoff) => {
+          if (this.telegramOptions) {
+            await this.telegramRelay?.start(
+              this.telegramOptions,
+              announceHandoff,
+            );
+          }
+        },
+        stop: () => this.telegramRelay?.stop(),
+      },
+    );
+    this.telegramRelay.coordinator = this.telegramCoordinator;
     context.subscriptions.push({
       dispose: () => {
         this.chatApiServer?.dispose();
         this.chatApiMdns?.stop();
+        void this.telegramCoordinator?.disable();
         this.telegramRelay?.dispose();
       },
     });
@@ -766,7 +792,7 @@ export class VsCodeExtension {
   }
 
   private async setupTelegramRelay(context: vscode.ExtensionContext) {
-    if (!this.telegramRelay) {
+    if (!this.telegramRelay || !this.telegramCoordinator) {
       return;
     }
     const config = vscode.workspace.getConfiguration(EXTENSION_NAME);
@@ -778,10 +804,21 @@ export class VsCodeExtension {
     const botToken = await context.secrets.get(TELEGRAM_BOT_TOKEN_SECRET_KEY);
 
     if (!enabled || !botToken) {
+      this.telegramOptions = undefined;
+      await this.telegramCoordinator.disable();
       this.telegramRelay.stop();
       return;
     }
-    await this.telegramRelay.start({ botToken, allowedChatIds });
+
+    this.telegramOptions = { botToken, allowedChatIds };
+    // The coordinator decides whether *this* window polls the bot - only one
+    // window per installation may, since Telegram allows a single getUpdates
+    // consumer. If we already own it, apply the new options directly.
+    if (this.telegramCoordinator.isOwner) {
+      await this.telegramRelay.start(this.telegramOptions);
+    } else {
+      await this.telegramCoordinator.enable();
+    }
   }
 
   public async getChatApiStatus(): Promise<ChatApiStatus> {
@@ -798,7 +835,6 @@ export class VsCodeExtension {
     const botToken = await this.extensionContext.secrets.get(
       TELEGRAM_BOT_TOKEN_SECRET_KEY,
     );
-    const telegramStatus = this.telegramRelay?.status;
 
     const urls: string[] = [];
     if (host === "0.0.0.0" || host === "::") {
@@ -822,17 +858,38 @@ export class VsCodeExtension {
       token,
       mdnsEnabled,
       urls,
-      telegram: {
-        enabled: config.get<boolean>("chatApi.telegram.enabled", false),
-        botTokenSet: !!botToken,
-        botUsername: telegramStatus?.botUsername,
-        allowedChatIds: config.get<string>(
-          "chatApi.telegram.allowedChatIds",
-          "",
-        ),
-        status: telegramStatus?.state ?? "stopped",
-        error: telegramStatus?.error,
-      },
+      telegram: await this.getTelegramStatus(config, botToken),
+    };
+  }
+
+  private async getTelegramStatus(
+    config: vscode.WorkspaceConfiguration,
+    botToken: string | undefined,
+  ): Promise<ChatApiStatus["telegram"]> {
+    const enabled = config.get<boolean>("chatApi.telegram.enabled", false);
+    const relayStatus = this.telegramRelay?.status;
+    let status: ChatApiStatus["telegram"]["status"] =
+      relayStatus?.state ?? "stopped";
+    let ownerWorkspace: string | undefined;
+
+    // Enabled with a token but not polling usually means another window won
+    // the cross-window election - report that as standby, not stopped.
+    if (enabled && botToken && status === "stopped") {
+      const owner = await this.telegramCoordinator?.currentOwner();
+      if (owner && owner.windowId !== this.telegramCoordinator?.windowId) {
+        status = "standby";
+        ownerWorkspace = owner.workspaceName || undefined;
+      }
+    }
+
+    return {
+      enabled,
+      botTokenSet: !!botToken,
+      botUsername: relayStatus?.botUsername,
+      allowedChatIds: config.get<string>("chatApi.telegram.allowedChatIds", ""),
+      status,
+      error: relayStatus?.error,
+      ownerWorkspace,
     };
   }
 

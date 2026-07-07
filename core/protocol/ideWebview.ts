@@ -18,8 +18,11 @@ export interface ChatApiTelegramStatus {
   botTokenSet: boolean;
   botUsername?: string;
   allowedChatIds: string;
-  status: "stopped" | "starting" | "running" | "error";
+  /** "standby": telegram is enabled but another VS Code window owns the bot */
+  status: "stopped" | "starting" | "running" | "error" | "standby";
   error?: string;
+  /** Workspace name of the window currently owning the relay, when known */
+  ownerWorkspace?: string;
 }
 
 export interface ChatApiStatus {

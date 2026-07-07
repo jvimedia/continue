@@ -163,7 +163,7 @@ struct ServerBrowserView: View {
     }
 
     private func proceed(host: String, port: Int) {
-        if let token = ConnectionStore.loadToken(host: host, port: port) {
+        if let token = ConnectionStore.loadToken(host: host) {
             open(ServerConnection(host: host, port: port, token: token))
         } else {
             tokenInput = ""
@@ -202,6 +202,47 @@ struct ServerBrowserView: View {
             errorMessage = "Enter a valid port."
             return
         }
-        proceed(host: value, port: port)
+        let host = value
+        isResolving = true
+        Task {
+            defer { isResolving = false }
+            if let reachablePort = await findReachablePort(host: host, preferred: port) {
+                if reachablePort != port {
+                    manualPort = String(reachablePort)
+                }
+                proceed(host: host, port: reachablePort)
+            } else {
+                errorMessage =
+                    "No Chat API server reachable at \(host). Check that the server is enabled with LAN access in VS Code."
+            }
+        }
+    }
+
+    /// Servers walk to the next free port when several VS Code windows are
+    /// open, so if the entered port doesn't answer, scan the range around
+    /// the default before giving up.
+    private func findReachablePort(host: String, preferred: Int) async -> Int? {
+        if await ApiClient.probeHealth(host: host, port: preferred) {
+            return preferred
+        }
+        let basePort = 65433
+        let candidates = (basePort ..< basePort + 10).filter { $0 != preferred }
+        return await withTaskGroup(of: Int?.self) { group in
+            for candidate in candidates {
+                group.addTask {
+                    await ApiClient.probeHealth(host: host, port: candidate)
+                        ? candidate : nil
+                }
+            }
+            var found: Int?
+            for await result in group {
+                if let result {
+                    found = result
+                    group.cancelAll()
+                    break
+                }
+            }
+            return found
+        }
     }
 }

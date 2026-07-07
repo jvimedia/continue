@@ -77,6 +77,27 @@ struct ApiClient {
         try await get("info", as: ServerInfo.self)
     }
 
+    /// `GET /health` needs no token - used to find which port a window's
+    /// server actually bound (ports shift when several windows are open).
+    static func probeHealth(host: String, port: Int) async -> Bool {
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = host
+        components.port = port
+        components.path = "/health"
+        guard let url = components.url else {
+            return false
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 2
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse
+        else {
+            return false
+        }
+        return http.statusCode == 200
+    }
+
     func sessions() async throws -> [SessionMeta] {
         struct SessionsResponse: Decodable {
             let sessions: [SessionMeta]

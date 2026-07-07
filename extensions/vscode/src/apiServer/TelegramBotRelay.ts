@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 import { ChatApiServer, ChatStreamEvent } from "./ChatApiServer";
+import { TelegramRelayCoordinator } from "./TelegramRelayCoordinator";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const LONG_POLL_TIMEOUT_SECONDS = 50;
@@ -40,6 +41,14 @@ export class TelegramBotRelay {
    */
   private recentlyInjected: { text: string; at: number }[] = [];
 
+  /**
+   * Set when multiple VS Code windows coordinate bot ownership; powers the
+   * `/windows` list and `/window <n>` handoff commands.
+   */
+  coordinator?: TelegramRelayCoordinator;
+  /** This window's workspace name, shown in `/windows` and announcements. */
+  workspaceName = "";
+
   constructor(
     private readonly chatApiServer: ChatApiServer,
     private readonly log: (message: string) => void,
@@ -61,7 +70,10 @@ export class TelegramBotRelay {
     return this.state === "running" || this.state === "starting";
   }
 
-  async start(options: TelegramRelayOptions): Promise<void> {
+  async start(
+    options: TelegramRelayOptions,
+    announceHandoff = false,
+  ): Promise<void> {
     this.stop();
     this.options = options;
     this.state = "starting";
@@ -83,6 +95,12 @@ export class TelegramBotRelay {
     );
     this.state = "running";
     void this.pollLoop(++this.pollGeneration);
+
+    if (announceHandoff) {
+      void this.broadcastToAllowedChats(
+        `✅ Now connected to "${this.workspaceName || "(unnamed window)"}"`,
+      );
+    }
   }
 
   stop(): void {
@@ -148,6 +166,11 @@ export class TelegramBotRelay {
       return;
     }
 
+    if (text.trim().startsWith("/")) {
+      await this.handleCommand(text.trim(), chatId);
+      return;
+    }
+
     this.rememberInjected(text);
     try {
       await this.chatApiServer.sendUserMessage(text);
@@ -156,6 +179,83 @@ export class TelegramBotRelay {
         chatId,
         `Failed to deliver message to Continue: ${e?.message ?? e}`,
       );
+    }
+  }
+
+  /**
+   * Bot commands. Everything not starting with "/" goes into the chat, so
+   * these never collide with normal messages.
+   */
+  private async handleCommand(text: string, chatId: number): Promise<void> {
+    const [command, ...args] = text.split(/\s+/);
+    switch (command.toLowerCase()) {
+      case "/start":
+      case "/help":
+        await this.sendToChat(
+          chatId,
+          [
+            "Messages you send here go into the Continue chat in VS Code, and assistant replies come back.",
+            "",
+            "/windows — list open VS Code windows",
+            "/window <n> — move the bot to window n",
+            "/help — this message",
+          ].join("\n"),
+        );
+        return;
+
+      case "/window":
+      case "/windows": {
+        const windows = (await this.coordinator?.listWindows()) ?? [];
+        const target = args[0];
+        if (!target) {
+          if (windows.length === 0) {
+            await this.sendToChat(
+              chatId,
+              `Connected to "${this.workspaceName || "(unnamed window)"}". No other windows available.`,
+            );
+            return;
+          }
+          const lines = windows.map((w, i) => {
+            const here = this.coordinator?.windowId === w.windowId;
+            return `${i + 1}. ${w.workspaceName || "(unnamed window)"}${here ? " ← connected" : ""}`;
+          });
+          await this.sendToChat(
+            chatId,
+            [
+              "Open VS Code windows:",
+              ...lines,
+              "",
+              "Switch with /window <n>",
+            ].join("\n"),
+          );
+          return;
+        }
+        const index = Number.parseInt(target, 10) - 1;
+        const chosen = windows[index];
+        if (!chosen) {
+          await this.sendToChat(
+            chatId,
+            `No window ${target}. Use /windows to list them.`,
+          );
+          return;
+        }
+        if (chosen.windowId === this.coordinator?.windowId) {
+          await this.sendToChat(
+            chatId,
+            `Already connected to "${chosen.workspaceName || "(unnamed window)"}".`,
+          );
+          return;
+        }
+        await this.coordinator?.requestSwitch(chosen.windowId);
+        await this.sendToChat(
+          chatId,
+          `Handing over to "${chosen.workspaceName || "(unnamed window)"}" — takes a few seconds…`,
+        );
+        return;
+      }
+
+      default:
+        await this.sendToChat(chatId, `Unknown command ${command}. Try /help.`);
     }
   }
 
