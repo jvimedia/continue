@@ -9,6 +9,8 @@ describe("permissionsYamlLoader", () => {
       const config = {
         allow: ["Read", "List"],
         ask: ["Write"],
+        review: ["Bash"],
+        reviewAsk: ["Fetch"],
         exclude: ["Bash"],
       };
 
@@ -17,6 +19,8 @@ describe("permissionsYamlLoader", () => {
       expect(policies).toEqual([
         { tool: "Bash", permission: "exclude" },
         { tool: "Write", permission: "ask" },
+        { tool: "Bash", permission: "review" },
+        { tool: "Fetch", permission: "reviewAsk" },
         { tool: "Read", permission: "allow" },
         { tool: "List", permission: "allow" },
       ]);
@@ -73,6 +77,8 @@ describe("permissionsYamlLoader", () => {
       const config = {
         allow: ["Read", "List"],
         ask: ["Write", "Terminal"],
+        review: ["Bash"],
+        reviewAsk: ["Fetch"],
         exclude: ["Fetch", "Exit"],
       };
 
@@ -83,6 +89,8 @@ describe("permissionsYamlLoader", () => {
         { tool: "Exit", permission: "exclude" },
         { tool: "Write", permission: "ask" },
         { tool: "Terminal", permission: "ask" },
+        { tool: "Bash", permission: "review" },
+        { tool: "Fetch", permission: "reviewAsk" },
         { tool: "Read", permission: "allow" },
         { tool: "List", permission: "allow" },
       ]);

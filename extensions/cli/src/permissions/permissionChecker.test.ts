@@ -402,6 +402,40 @@ describe("Permission Checker", () => {
       expect(result.matchedPolicy?.tool).toBe("writeFile");
     });
 
+    it("should review tools with review permission", () => {
+      const permissions: ToolPermissions = {
+        policies: [{ tool: "Bash", permission: "review" }],
+      };
+
+      const result = checkToolPermission(
+        {
+          name: "Bash",
+          arguments: { command: "npm test" },
+        },
+        permissions,
+      );
+
+      expect(result.permission).toBe("review");
+      expect(result.matchedPolicy?.tool).toBe("Bash");
+    });
+
+    it("should review and ask for tools with reviewAsk permission", () => {
+      const permissions: ToolPermissions = {
+        policies: [{ tool: "Bash", permission: "reviewAsk" }],
+      };
+
+      const result = checkToolPermission(
+        {
+          name: "Bash",
+          arguments: { command: "npm test" },
+        },
+        permissions,
+      );
+
+      expect(result.permission).toBe("reviewAsk");
+      expect(result.matchedPolicy?.tool).toBe("Bash");
+    });
+
     it("should exclude tools with exclude permission", () => {
       const permissions: ToolPermissions = {
         policies: [{ tool: "runTerminalCommand", permission: "exclude" }],

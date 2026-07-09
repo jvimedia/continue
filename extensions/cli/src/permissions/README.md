@@ -1,9 +1,11 @@
 # Tool Permissions System
 
-The tool permissions system allows you to control which tools the AI can use and how it can use them. There are three permission levels:
+The tool permissions system allows you to control which tools the AI can use and how it can use them. There are five permission levels:
 
 - **allow**: The tool will be executed automatically without asking for permission
 - **ask**: The tool will prompt the user for permission before execution
+- **review**: The tool call will be sent to the current AI, without previous conversation context, and executed when the AI says it is safe
+- **reviewAsk**: The tool call will be sent to the current AI first; if the AI does not deny it, the user is prompted before execution
 - **exclude**: The tool will be filtered out entirely and won't be available to the AI
 
 ## Default Policies
@@ -33,6 +35,14 @@ When the AI tries to use a tool with "ask" permission, the system will:
 ### 3. Automatic Execution (Allow Policy)
 
 Tools with "allow" permission are executed immediately without user intervention.
+
+### 4. AI Review (Review Policy)
+
+Tools with "review" permission remain available to the model, but each tool call is reviewed by the current AI in an isolated prompt before execution. The review fails closed: if the AI reports risk, returns an invalid decision, or the review call fails, the tool call is denied.
+
+### 5. AI Review Then Ask (ReviewAsk Policy)
+
+Tools with "reviewAsk" permission use the same isolated AI review. If the AI denies the call, it is canceled immediately. If the AI allows the call, the normal user permission prompt is shown before execution.
 
 ## Architecture
 

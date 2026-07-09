@@ -19,6 +19,10 @@ export interface BaseCommandOptions {
   allow?: string[];
   /** Array of tools to ask permission for (--ask) */
   ask?: string[];
+  /** Array of tools to review with AI before use (--review) */
+  review?: string[];
+  /** Array of tools to review with AI, then ask permission if safe (--review-ask) */
+  reviewAsk?: string[];
   /** Array of tools to exclude from use (--exclude) */
   exclude?: string[];
   /** Agent file slug from the hub (--agent) */

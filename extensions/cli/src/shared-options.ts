@@ -76,6 +76,26 @@ export function addCommonOptions(command: Command): Command {
       [] as string[],
     )
     .option(
+      "--review <tool>",
+      "Review specified tool with the current AI before use (overrides default policies). Can be specified multiple times.",
+      (value: string, previous: string[] | undefined) => {
+        const array = Array.isArray(previous) ? previous : [];
+        array.push(value);
+        return array;
+      },
+      [] as string[],
+    )
+    .option(
+      "--review-ask <tool>",
+      "Review specified tool with the current AI, then ask for permission if safe. Can be specified multiple times.",
+      (value: string, previous: string[] | undefined) => {
+        const array = Array.isArray(previous) ? previous : [];
+        array.push(value);
+        return array;
+      },
+      [] as string[],
+    )
+    .option(
       "--exclude <tool>",
       "Exclude specified tool from use (overrides default policies). Can be specified multiple times.",
       (value: string, previous: string[] | undefined) => {
@@ -110,6 +130,8 @@ export function mergeParentOptions(parentCommand: Command, options: any): any {
     "prompt",
     "allow",
     "ask",
+    "review",
+    "reviewAsk",
     "exclude",
     "agent",
   ];

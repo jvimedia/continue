@@ -2,12 +2,14 @@
 title: "Tool Permissions"
 ---
 
-Every tool has one of three permission levels:
+Every tool has one of five permission levels:
 
 | Permission | Behavior |
 |------------|----------|
 | `allow` | Runs automatically, no prompt |
 | `ask` | Prompts for approval before running (TUI only) |
+| `review` | Sends the tool call to the current AI, without previous conversation context; runs if the AI allows it and denies if the AI sees risk |
+| `reviewAsk` | Sends the tool call to the current AI first; denies if the AI sees risk, otherwise prompts the user before running |
 | `exclude` | Hidden from the agent entirely |
 
 ## Defaults
@@ -16,7 +18,7 @@ Read-only tools (`Read`, `List`, `Search`, `Fetch`, `Diff`, `AskQuestion`, `Chec
 
 ## Overriding with flags
 
-Use `--allow`, `--ask`, and `--exclude` to override defaults at launch:
+Use `--allow`, `--ask`, `--review`, `--review-ask`, and `--exclude` to override defaults at launch:
 
 ```bash
 # Allow file writes without prompting
@@ -24,6 +26,12 @@ cn --allow Write --allow Edit
 
 # Exclude terminal commands
 cn --exclude Bash
+
+# Let the current AI review terminal commands before running them
+cn --review Bash
+
+# Let the current AI block risky terminal commands, then ask before running safe ones
+cn --review-ask Bash
 
 # Allow everything (headless automation)
 cn -p "Set up the project" --allow "*"
@@ -59,6 +67,12 @@ allow:
 
 ask:
   - Bash
+
+review:
+  - Bash(npm run *)
+
+reviewAsk:
+  - Bash(git push *)
 
 exclude: []
 ```

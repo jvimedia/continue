@@ -1,6 +1,8 @@
 // Helper functions extracted from streamChatResponse.ts to reduce file size
 /* eslint-disable max-lines */
 
+import type { ModelConfig } from "@continuedev/config-yaml";
+import type { BaseLlmApi } from "@continuedev/openai-adapters";
 import type { ToolStatus, Usage } from "core/index.js";
 import { calculateRequestCost } from "core/llm/utils/calculateRequestCost.js";
 import { ContinueError, ContinueErrorReason } from "core/util/errors.js";
@@ -25,6 +27,7 @@ import {
   validateToolCallArgsPresent,
 } from "../tools/index.js";
 import { PreprocessedToolCall, ToolCall } from "../tools/types.js";
+import { chatCompletionStreamWithBackoff } from "../util/exponentialBackoff.js";
 import { logger } from "../util/logger.js";
 
 import { StreamCallbacks } from "./streamChatResponse.types.js";
@@ -109,13 +112,120 @@ export async function requestUserPermission(
   return permissionResult.approved;
 }
 
+function buildAiReviewPrompt(toolCall: PreprocessedToolCall): string {
+  const args = toolCall.preprocessResult?.args ?? toolCall.arguments;
+  const preview = toolCall.preprocessResult?.preview;
+
+  return `Review this tool call in isolation. You do not have the previous conversation context.
+
+Question: is it safe to run this, or is there a problem?
+
+Rules:
+- If there is any problem, meaningful risk, ambiguity, destructive action, credential exposure, data loss risk, privilege escalation, network exfiltration risk, or command-injection concern, deny it.
+- Allow only when the tool call is clearly safe.
+- Respond with exactly one line in this format:
+DECISION: ALLOW | REASON: short reason
+or
+DECISION: DENY | REASON: short reason
+
+Tool: ${toolCall.name}
+Arguments:
+${JSON.stringify(args, null, 2)}${
+    preview ? `\nPreview:\n${JSON.stringify(preview, null, 2)}` : ""
+  }`;
+}
+
+function parseAiReviewDecision(response: string): {
+  approved: boolean;
+  reason: string;
+} {
+  const normalized = response.trim();
+  const decisionMatch = normalized.match(/\bDECISION:\s*(ALLOW|DENY)\b/i);
+  const reasonMatch = normalized.match(/\bREASON:\s*(.+)$/is);
+  const reason = reasonMatch?.[1]?.trim() || "No reason provided";
+
+  if (!decisionMatch) {
+    return {
+      approved: false,
+      reason: `AI review returned an invalid decision: ${normalized.slice(0, 200)}`,
+    };
+  }
+
+  return {
+    approved: decisionMatch[1].toUpperCase() === "ALLOW",
+    reason,
+  };
+}
+
+export async function requestAiReviewPermission(
+  toolCall: PreprocessedToolCall,
+  model?: ModelConfig,
+  llmApi?: BaseLlmApi,
+): Promise<{ approved: boolean; reason: string }> {
+  if (!model || !llmApi) {
+    return {
+      approved: false,
+      reason: "AI review unavailable because no active model/API was provided",
+    };
+  }
+
+  try {
+    const abortController = new AbortController();
+    const stream = await chatCompletionStreamWithBackoff(
+      llmApi,
+      {
+        model: model.model,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a strict tool-call safety reviewer. Review only the provided tool call. If you see any problem or risk, deny it. Return only the requested decision line.",
+          },
+          {
+            role: "user",
+            content: buildAiReviewPrompt(toolCall),
+          },
+        ],
+        stream: true,
+        ...getDefaultCompletionOptions(model.defaultCompletionOptions),
+      },
+      abortController.signal,
+    );
+
+    let response = "";
+    for await (const chunk of stream) {
+      response += chunk.choices?.[0]?.delta?.content ?? "";
+    }
+
+    return parseAiReviewDecision(response);
+  } catch (error) {
+    logger.error("AI permission review failed", {
+      name: toolCall.name,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      approved: false,
+      reason: `AI review failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
+}
+
 // Helper function to check if tool permission is needed
 export async function checkToolPermissionApproval(
   permissions: ToolPermissions,
   toolCall: PreprocessedToolCall,
   callbacks?: StreamCallbacks,
   isHeadless?: boolean,
-): Promise<{ approved: boolean; denialReason?: "user" | "policy" }> {
+  model?: ModelConfig,
+  llmApi?: BaseLlmApi,
+): Promise<{
+  approved: boolean;
+  denialReason?: "user" | "policy";
+  denialMessage?: string;
+  denialSource?: "user" | "policy" | "aiReview";
+}> {
   const permissionCheck = checkToolPermission(toolCall, permissions);
 
   if (permissionCheck.permission === "allow") {
@@ -125,6 +235,40 @@ export async function checkToolPermissionApproval(
       // "ask" tools are excluded in headless so can only get here by policy evaluation
       return { approved: false, denialReason: "policy" };
     }
+    const userApproved = await requestUserPermission(toolCall, callbacks);
+    return userApproved
+      ? { approved: true }
+      : { approved: false, denialReason: "user" };
+  } else if (permissionCheck.permission === "review") {
+    const review = await requestAiReviewPermission(toolCall, model, llmApi);
+    return review.approved
+      ? { approved: true }
+      : {
+          approved: false,
+          denialReason: "policy",
+          denialSource: "aiReview",
+          denialMessage: `The AI reviewer denied this tool call before execution. Reason: ${review.reason}. Do not retry the same tool call unless you change it to address this reason.`,
+        };
+  } else if (permissionCheck.permission === "reviewAsk") {
+    const review = await requestAiReviewPermission(toolCall, model, llmApi);
+    if (!review.approved) {
+      return {
+        approved: false,
+        denialReason: "policy",
+        denialSource: "aiReview",
+        denialMessage: `The AI reviewer denied this tool call before execution. Reason: ${review.reason}. Do not retry the same tool call unless you change it to address this reason.`,
+      };
+    }
+
+    if (isHeadless) {
+      return {
+        approved: false,
+        denialReason: "policy",
+        denialMessage:
+          "AI review allowed tool call, but user confirmation is unavailable in headless mode",
+      };
+    }
+
     const userApproved = await requestUserPermission(toolCall, callbacks);
     return userApproved
       ? { approved: true }
@@ -470,8 +614,11 @@ export async function executeStreamedToolCalls(
   preprocessedCalls: PreprocessedToolCall[],
   callbacks?: StreamCallbacks,
   isHeadless?: boolean,
+  model?: ModelConfig,
+  llmApi?: BaseLlmApi,
 ): Promise<{
   hasRejection: boolean;
+  hasHeadlessBlockingRejection: boolean;
   chatHistoryEntries: ToolResultWithStatus[];
 }> {
   // Strategy: queue permissions (preserve order), then run approved tools in parallel.
@@ -491,6 +638,7 @@ export async function executeStreamedToolCalls(
   const execPromises: Promise<void>[] = [];
 
   let hasRejection = false;
+  let hasHeadlessBlockingRejection = false;
 
   // Permission phase (sequential)
   for (const { index, call } of indexedCalls) {
@@ -515,15 +663,18 @@ export async function executeStreamedToolCalls(
         call,
         callbacks,
         isHeadless,
+        model,
+        llmApi,
       );
 
       if (!permissionResult.approved) {
         // Permission denied: create entry with canceled status
         const denialReason = permissionResult.denialReason || "user";
         const deniedMessage =
-          denialReason === "policy"
+          permissionResult.denialMessage ??
+          (denialReason === "policy"
             ? `Command blocked by security policy`
-            : `Permission denied by user`;
+            : `Permission denied by user`);
 
         const deniedEntry: ToolResultWithStatus = {
           role: "tool",
@@ -546,6 +697,9 @@ export async function executeStreamedToolCalls(
           );
         } catch {}
         hasRejection = true;
+        if (permissionResult.denialSource !== "aiReview") {
+          hasHeadlessBlockingRejection = true;
+        }
         // Remaining items will be auto-cancelled in subsequent iterations
         continue;
       }
@@ -644,6 +798,7 @@ export async function executeStreamedToolCalls(
 
   return {
     hasRejection,
+    hasHeadlessBlockingRejection,
     chatHistoryEntries,
   };
 }

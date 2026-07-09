@@ -131,6 +131,24 @@ describe("getRequestTools - Tool Filtering", () => {
     expect(toolNames).toContain("List");
   });
 
+  test("should include review-gated tools in normal and headless modes", async () => {
+    await initializeServices({
+      headless: true,
+      toolPermissionOverrides: {
+        mode: "normal",
+        review: ["Bash"],
+        reviewAsk: ["MultiEdit"],
+        exclude: ["Write"],
+      },
+    });
+
+    const tools = await getRequestTools(true);
+    const toolNames = tools.map((t) => t.function.name);
+
+    expect(toolNames).toContain("Bash");
+    expect(toolNames).toContain("MultiEdit");
+  });
+
   test("plan mode should override allow flags (regression test for GitHub Actions issue)", async () => {
     // This test specifically addresses the original issue where plan mode
     // wasn't properly excluding tools despite being in plan mode

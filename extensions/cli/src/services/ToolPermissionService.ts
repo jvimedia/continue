@@ -24,6 +24,8 @@ import {
 export interface InitializeToolServiceOverrides {
   allow?: string[];
   ask?: string[];
+  review?: string[];
+  reviewAsk?: string[];
   exclude?: string[];
   mode?: PermissionMode;
   isHeadless?: boolean;

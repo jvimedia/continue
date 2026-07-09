@@ -23,6 +23,8 @@ export interface ValidationOptions {
   // Permission flags
   allow?: string[];
   ask?: string[];
+  review?: string[];
+  reviewAsk?: string[];
   exclude?: string[];
 
   // Command context
@@ -166,6 +168,21 @@ function validatePermissionFlags(
     errors.push({
       code: "EMPTY_ASK_TOOL",
       message: "Error: --ask requires a tool name (e.g., --ask writeFile)",
+    });
+  }
+
+  if (options.review?.some((tool) => !tool.trim())) {
+    errors.push({
+      code: "EMPTY_REVIEW_TOOL",
+      message: "Error: --review requires a tool name (e.g., --review Bash)",
+    });
+  }
+
+  if (options.reviewAsk?.some((tool) => !tool.trim())) {
+    errors.push({
+      code: "EMPTY_REVIEW_ASK_TOOL",
+      message:
+        "Error: --review-ask requires a tool name (e.g., --review-ask Bash)",
     });
   }
 

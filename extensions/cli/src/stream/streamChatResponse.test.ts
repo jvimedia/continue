@@ -12,10 +12,135 @@ import { PreprocessedToolCall } from "../tools/types.js";
 import { writeFileTool } from "../tools/writeFile.js";
 
 import {
+  checkToolPermissionApproval,
   executeStreamedToolCalls,
   preprocessStreamedToolCalls,
+  requestAiReviewPermission,
 } from "./streamChatResponse.helpers.js";
 import { processStreamingResponse } from "./streamChatResponse.js";
+
+function mockReviewLlmApi(response: string): BaseLlmApi {
+  return {
+    chatCompletionStream: vi.fn().mockImplementation(async function* () {
+      yield {
+        choices: [{ delta: { content: response }, index: 0 }],
+      };
+    }),
+    chatCompletionNonStream: vi.fn(),
+    completionStream: vi.fn(),
+    completionNonStream: vi.fn(),
+    fimStream: vi.fn(),
+    embed: vi.fn(),
+    rerank: vi.fn(),
+    list: vi.fn(),
+  } as unknown as BaseLlmApi;
+}
+
+describe("requestAiReviewPermission", () => {
+  const model = { model: "test-model" } as ModelConfig;
+  const toolCall: PreprocessedToolCall = {
+    id: "call_review",
+    name: "Bash",
+    arguments: { command: "npm test" },
+    argumentsStr: '{"command":"npm test"}',
+    startNotified: false,
+    tool: readFileTool,
+  };
+
+  it("allows when the reviewer returns ALLOW", async () => {
+    const result = await requestAiReviewPermission(
+      toolCall,
+      model,
+      mockReviewLlmApi("DECISION: ALLOW | REASON: test command is safe"),
+    );
+
+    expect(result).toEqual({
+      approved: true,
+      reason: "test command is safe",
+    });
+  });
+
+  it("denies when the reviewer returns DENY", async () => {
+    const result = await requestAiReviewPermission(
+      toolCall,
+      model,
+      mockReviewLlmApi("DECISION: DENY | REASON: command deletes files"),
+    );
+
+    expect(result).toEqual({
+      approved: false,
+      reason: "command deletes files",
+    });
+  });
+
+  it("denies malformed reviewer responses", async () => {
+    const result = await requestAiReviewPermission(
+      toolCall,
+      model,
+      mockReviewLlmApi("looks fine"),
+    );
+
+    expect(result.approved).toBe(false);
+    expect(result.reason).toContain("invalid decision");
+  });
+});
+
+describe("checkToolPermissionApproval reviewAsk", () => {
+  const model = { model: "test-model" } as ModelConfig;
+  const toolCall: PreprocessedToolCall = {
+    id: "call_review_ask",
+    name: "Bash",
+    arguments: { command: "npm test" },
+    argumentsStr: '{"command":"npm test"}',
+    startNotified: false,
+    tool: readFileTool,
+  };
+  const permissions = {
+    policies: [{ tool: "Bash", permission: "reviewAsk" as const }],
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("asks the user after AI allows the tool call", async () => {
+    const permissionSpy = vi
+      .spyOn(toolPermissionManager, "requestPermission")
+      .mockResolvedValue({ approved: true });
+
+    const result = await checkToolPermissionApproval(
+      permissions,
+      toolCall,
+      { onToolPermissionRequest: vi.fn() },
+      false,
+      model,
+      mockReviewLlmApi("DECISION: ALLOW | REASON: safe test command"),
+    );
+
+    expect(result).toEqual({ approved: true });
+    expect(permissionSpy).toHaveBeenCalled();
+  });
+
+  it("denies without asking the user when AI denies the tool call", async () => {
+    const permissionSpy = vi.spyOn(toolPermissionManager, "requestPermission");
+
+    const result = await checkToolPermissionApproval(
+      permissions,
+      toolCall,
+      { onToolPermissionRequest: vi.fn() },
+      false,
+      model,
+      mockReviewLlmApi("DECISION: DENY | REASON: unsafe command"),
+    );
+
+    expect(result.approved).toBe(false);
+    expect(result.denialReason).toBe("policy");
+    expect(result.denialSource).toBe("aiReview");
+    expect(result.denialMessage).toContain("AI reviewer denied");
+    expect(result.denialMessage).toContain("unsafe command");
+    expect(permissionSpy).not.toHaveBeenCalled();
+  });
+});
 
 // Test the chunk processing logic that was identified as buggy
 describe("processStreamingResponse - content preservation", () => {

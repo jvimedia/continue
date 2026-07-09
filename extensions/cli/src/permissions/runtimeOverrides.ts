@@ -10,9 +10,17 @@ let runtimeOverrides: ToolPermissionPolicy[] | null = null;
 export function setRuntimePermissionOverrides(overrides: {
   allow?: string[];
   ask?: string[];
+  review?: string[];
+  reviewAsk?: string[];
   exclude?: string[];
 }) {
-  if (!overrides.allow && !overrides.ask && !overrides.exclude) {
+  if (
+    !overrides.allow &&
+    !overrides.ask &&
+    !overrides.review &&
+    !overrides.reviewAsk &&
+    !overrides.exclude
+  ) {
     runtimeOverrides = null;
     return;
   }
@@ -31,6 +39,20 @@ export function setRuntimePermissionOverrides(overrides: {
     for (const tool of overrides.ask) {
       const normalizedName = tool;
       policies.push({ tool: normalizedName, permission: "ask" });
+    }
+  }
+
+  if (overrides.review) {
+    for (const tool of overrides.review) {
+      const normalizedName = tool;
+      policies.push({ tool: normalizedName, permission: "review" });
+    }
+  }
+
+  if (overrides.reviewAsk) {
+    for (const tool of overrides.reviewAsk) {
+      const normalizedName = tool;
+      policies.push({ tool: normalizedName, permission: "reviewAsk" });
     }
   }
 

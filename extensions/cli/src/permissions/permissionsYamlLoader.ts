@@ -15,6 +15,8 @@ export const PERMISSIONS_YAML_PATH = path.resolve(
 export interface PermissionsYamlConfig {
   allow?: string[];
   ask?: string[];
+  review?: string[];
+  reviewAsk?: string[];
   exclude?: string[];
 }
 
@@ -36,7 +38,7 @@ export function loadPermissionsYaml(): PermissionsYamlConfig | null {
 
     // Validate the structure
     if (parsed && typeof parsed === "object") {
-      const validKeys = ["allow", "ask", "exclude"];
+      const validKeys = ["allow", "ask", "review", "reviewAsk", "exclude"];
       const hasValidStructure = Object.keys(parsed).every(
         (key) =>
           validKeys.includes(key) &&
@@ -48,6 +50,8 @@ export function loadPermissionsYaml(): PermissionsYamlConfig | null {
         logger.debug("Loaded permissions from YAML", {
           allow: parsed.allow?.length || 0,
           ask: parsed.ask?.length || 0,
+          review: parsed.review?.length || 0,
+          reviewAsk: parsed.reviewAsk?.length || 0,
           exclude: parsed.exclude?.length || 0,
         });
         return parsed;
@@ -137,6 +141,18 @@ export function yamlConfigToPolicies(
     }
   }
 
+  if (config.review) {
+    for (const pattern of config.review) {
+      policies.push(parseToolPattern(pattern, "review"));
+    }
+  }
+
+  if (config.reviewAsk) {
+    for (const pattern of config.reviewAsk) {
+      policies.push(parseToolPattern(pattern, "reviewAsk"));
+    }
+  }
+
   if (config.allow) {
     for (const pattern of config.allow) {
       policies.push(parseToolPattern(pattern, "allow"));
@@ -166,6 +182,12 @@ allow: []
 
 # Tools that require user confirmation before execution
 ask: []
+
+# Tools that are reviewed by the current AI before execution
+review: []
+
+# Tools that are reviewed by the current AI, then ask the user if not denied
+reviewAsk: []
 
 # Tools that are completely excluded (model won't know they exist)
 exclude: []

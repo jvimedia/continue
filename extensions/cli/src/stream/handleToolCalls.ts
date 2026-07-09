@@ -1,3 +1,5 @@
+import type { ModelConfig } from "@continuedev/config-yaml";
+import type { BaseLlmApi } from "@continuedev/openai-adapters";
 import type { ChatHistoryItem, ToolStatus } from "core/index.js";
 import { stripImages } from "core/util/messageContent.js";
 import { createHistoryItem } from "core/util/messageConversion.js";
@@ -31,13 +33,23 @@ interface HandleToolCallsOptions {
   callbacks: StreamCallbacks | undefined;
   isHeadless: boolean;
   usage?: any;
+  model?: ModelConfig;
+  llmApi?: BaseLlmApi;
 }
 
 export async function handleToolCalls(
   options: HandleToolCallsOptions,
 ): Promise<boolean> {
-  const { toolCalls, chatHistory, content, callbacks, isHeadless, usage } =
-    options;
+  const {
+    toolCalls,
+    chatHistory,
+    content,
+    callbacks,
+    isHeadless,
+    usage,
+    model,
+    llmApi,
+  } = options;
   const chatHistorySvc = services.chatHistory;
   const useService =
     typeof chatHistorySvc?.isReady === "function" && chatHistorySvc.isReady();
@@ -149,13 +161,15 @@ export async function handleToolCalls(
   // Execute the valid preprocessed tool calls
   // Note: executeStreamedToolCalls adds tool results to toolCallStates via
   // services.chatHistory.addToolResult() internally
-  const { hasRejection } = await executeStreamedToolCalls(
+  const { hasHeadlessBlockingRejection } = await executeStreamedToolCalls(
     preprocessedCalls,
     callbacks,
     isHeadless,
+    model,
+    llmApi,
   );
 
-  if (isHeadless && hasRejection) {
+  if (isHeadless && hasHeadlessBlockingRejection) {
     logger.debug(
       "Tool call rejected in headless mode - returning current content",
     );
@@ -186,6 +200,8 @@ export async function getRequestTools(isHeadless: boolean) {
 
     if (
       result.permission === "allow" ||
+      result.permission === "review" ||
+      result.permission === "reviewAsk" ||
       (result.permission === "ask" && !isHeadless)
     ) {
       allowedTools.push(tool);

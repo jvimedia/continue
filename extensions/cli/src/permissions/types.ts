@@ -1,6 +1,11 @@
 import { ToolCallPreview } from "../tools/types.js";
 
-export type PermissionPolicy = "allow" | "ask" | "exclude";
+export type PermissionPolicy =
+  | "allow"
+  | "ask"
+  | "review"
+  | "reviewAsk"
+  | "exclude";
 
 export type PermissionMode = "normal" | "plan" | "auto";
 

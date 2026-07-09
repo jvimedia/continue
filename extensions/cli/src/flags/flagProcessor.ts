@@ -7,6 +7,8 @@ import { PermissionMode } from "../permissions/types.js";
 export interface PermissionOverrides {
   allow?: string[];
   ask?: string[];
+  review?: string[];
+  reviewAsk?: string[];
   exclude?: string[];
   mode?: PermissionMode;
 }
@@ -48,10 +50,14 @@ export function buildPermissionOverrides(
   ask?: string[],
   exclude?: string[],
   mode?: PermissionMode,
+  review?: string[],
+  reviewAsk?: string[],
 ): PermissionOverrides {
   return {
     allow,
     ask,
+    review,
+    reviewAsk,
     exclude,
     mode,
   };
@@ -66,6 +72,8 @@ export function processCommandFlags(options: {
   auto?: boolean;
   allow?: string[];
   ask?: string[];
+  review?: string[];
+  reviewAsk?: string[];
   exclude?: string[];
 }): ProcessedFlags {
   // Convert legacy flags to mode
@@ -77,6 +85,8 @@ export function processCommandFlags(options: {
     options.ask,
     options.exclude,
     mode,
+    options.review,
+    options.reviewAsk,
   );
 
   return {

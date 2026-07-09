@@ -145,6 +145,8 @@ export async function initializeServices(initOptions: ServiceInitOptions = {}) {
         const initArgs: InitializeToolServiceOverrides = {
           allow: overrides.allow,
           ask: overrides.ask,
+          review: overrides.review,
+          reviewAsk: overrides.reviewAsk,
           exclude: overrides.exclude,
           isHeadless: initOptions.headless,
         };

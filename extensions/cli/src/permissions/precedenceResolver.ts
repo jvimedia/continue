@@ -10,6 +10,8 @@ export interface PermissionSources {
   commandLineFlags?: {
     allow?: string[];
     ask?: string[];
+    review?: string[];
+    reviewAsk?: string[];
     exclude?: string[];
   };
   /** ~/.continue/permissions.yaml - third precedence */
@@ -65,6 +67,8 @@ export function resolvePermissionPrecedence(
 function commandLineFlagsToPolicies(flags: {
   allow?: string[];
   ask?: string[];
+  review?: string[];
+  reviewAsk?: string[];
   exclude?: string[];
 }): ToolPermissionPolicy[] {
   const policies: ToolPermissionPolicy[] = [];
@@ -81,6 +85,20 @@ function commandLineFlagsToPolicies(flags: {
     for (const tool of flags.ask) {
       const normalizedName = tool;
       policies.push({ tool: normalizedName, permission: "ask" });
+    }
+  }
+
+  if (flags.review) {
+    for (const tool of flags.review) {
+      const normalizedName = tool;
+      policies.push({ tool: normalizedName, permission: "review" });
+    }
+  }
+
+  if (flags.reviewAsk) {
+    for (const tool of flags.reviewAsk) {
+      const normalizedName = tool;
+      policies.push({ tool: normalizedName, permission: "reviewAsk" });
     }
   }
 

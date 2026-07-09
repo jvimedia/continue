@@ -113,6 +113,8 @@ function permissionPolicyToToolPolicy(
     case "allow":
       return "allowedWithoutPermission";
     case "ask":
+    case "review":
+    case "reviewAsk":
       return "allowedWithPermission";
     case "exclude":
       return "disabled";

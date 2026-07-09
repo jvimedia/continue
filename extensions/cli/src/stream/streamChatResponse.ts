@@ -515,6 +515,8 @@ export async function streamChatResponse(
       callbacks,
       isHeadless,
       usage,
+      model,
+      llmApi,
     });
 
     if (shouldReturn) {

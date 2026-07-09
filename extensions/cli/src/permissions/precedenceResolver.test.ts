@@ -76,18 +76,22 @@ describe("precedenceResolver", () => {
         commandLineFlags: {
           exclude: ["Write", "Bash"],
           ask: ["List", "Search"],
+          review: ["Fetch"],
+          reviewAsk: ["Diff"],
           allow: ["Read", "Fetch"],
         },
         useDefaults: false,
         personalSettings: false,
       });
 
-      // Order should be: exclude, ask, allow (as specified in the function)
+      // Order should be: exclude, ask, review, reviewAsk, allow (as specified in the function)
       expect(policies).toEqual([
         { tool: "Write", permission: "exclude" },
         { tool: "Bash", permission: "exclude" },
         { tool: "List", permission: "ask" },
         { tool: "Search", permission: "ask" },
+        { tool: "Fetch", permission: "review" },
+        { tool: "Diff", permission: "reviewAsk" },
         { tool: "Read", permission: "allow" },
         { tool: "Fetch", permission: "allow" },
       ]);

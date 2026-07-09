@@ -23,6 +23,8 @@ interface StartTUIChatOptions {
   toolPermissionOverrides?: {
     allow?: string[];
     ask?: string[];
+    review?: string[];
+    reviewAsk?: string[];
     exclude?: string[];
     mode?: PermissionMode;
   };

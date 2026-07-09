@@ -108,6 +108,8 @@ describe("validateFlags", () => {
       const result = validateFlags({
         allow: ["readFile", "searchCode"],
         ask: ["writeFile"],
+        review: ["Bash"],
+        reviewAsk: ["Fetch"],
         exclude: ["Write", "Bash"],
       });
 
@@ -137,6 +139,32 @@ describe("validateFlags", () => {
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0].code).toBe("EMPTY_ASK_TOOL");
       expect(result.errors[0].message).toContain("--ask requires a tool name");
+    });
+
+    test("should fail with empty tool names in review", () => {
+      const result = validateFlags({
+        review: ["Bash", "", "Write"],
+      });
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].code).toBe("EMPTY_REVIEW_TOOL");
+      expect(result.errors[0].message).toContain(
+        "--review requires a tool name",
+      );
+    });
+
+    test("should fail with empty tool names in reviewAsk", () => {
+      const result = validateFlags({
+        reviewAsk: ["Bash", " ", "Write"],
+      });
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].code).toBe("EMPTY_REVIEW_ASK_TOOL");
+      expect(result.errors[0].message).toContain(
+        "--review-ask requires a tool name",
+      );
     });
 
     test("should fail with empty tool names in exclude", () => {

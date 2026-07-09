@@ -40,6 +40,8 @@ describe("buildPermissionOverrides", () => {
     expect(result).toEqual({
       allow: ["readFile"],
       ask: ["writeFile"],
+      review: undefined,
+      reviewAsk: undefined,
       exclude: ["runTerminalCommand"],
       mode: "plan",
     });
@@ -51,6 +53,8 @@ describe("buildPermissionOverrides", () => {
     expect(result).toEqual({
       allow: undefined,
       ask: undefined,
+      review: undefined,
+      reviewAsk: undefined,
       exclude: undefined,
       mode: undefined,
     });
@@ -62,6 +66,8 @@ describe("buildPermissionOverrides", () => {
     expect(result).toEqual({
       allow: ["readFile"],
       ask: undefined,
+      review: undefined,
+      reviewAsk: undefined,
       exclude: ["Write"],
       mode: undefined,
     });
@@ -81,6 +87,8 @@ describe("processCommandFlags", () => {
       permissionOverrides: {
         allow: ["readFile"],
         ask: undefined,
+        review: undefined,
+        reviewAsk: undefined,
         exclude: ["Write"],
         mode: "plan",
       },
@@ -98,6 +106,8 @@ describe("processCommandFlags", () => {
       permissionOverrides: {
         allow: undefined,
         ask: ["writeFile"],
+        review: undefined,
+        reviewAsk: undefined,
         exclude: undefined,
         mode: "auto",
       },
@@ -114,6 +124,8 @@ describe("processCommandFlags", () => {
       permissionOverrides: {
         allow: ["readFile", "searchCode"],
         ask: undefined,
+        review: undefined,
+        reviewAsk: undefined,
         exclude: undefined,
         mode: undefined,
       },
@@ -137,6 +149,44 @@ describe("processCommandFlags", () => {
       permissionOverrides: {
         allow: undefined,
         ask: undefined,
+        review: undefined,
+        reviewAsk: undefined,
+        exclude: undefined,
+        mode: undefined,
+      },
+    });
+  });
+
+  test("should process review flag correctly", () => {
+    const result = processCommandFlags({
+      review: ["Bash"],
+    });
+
+    expect(result).toEqual({
+      mode: undefined,
+      permissionOverrides: {
+        allow: undefined,
+        ask: undefined,
+        review: ["Bash"],
+        reviewAsk: undefined,
+        exclude: undefined,
+        mode: undefined,
+      },
+    });
+  });
+
+  test("should process reviewAsk flag correctly", () => {
+    const result = processCommandFlags({
+      reviewAsk: ["Bash"],
+    });
+
+    expect(result).toEqual({
+      mode: undefined,
+      permissionOverrides: {
+        allow: undefined,
+        ask: undefined,
+        review: undefined,
+        reviewAsk: ["Bash"],
         exclude: undefined,
         mode: undefined,
       },
